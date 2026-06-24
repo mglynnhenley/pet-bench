@@ -196,6 +196,20 @@ def test_emergency_visit_costs_more(client, world):
 
 # -- account ------------------------------------------------------------------
 
+def test_account_breakdown_includes_supplies_cost(client, world):
+    """Regression: a placed order must show up in the /account supplies breakdown.
+    The order cost was never recorded in the action log, so 'supplies' was stuck
+    at 0.0 even though spend_to_date correctly reflected the charge."""
+    before = client.get("/account").json()["cost_breakdown"]["supplies"]
+    client.post("/supplies/order", json={"item": "dog_food", "qty": 1, "expedited": False})
+    after = client.get("/account").json()["cost_breakdown"]["supplies"]
+    assert after == before + world.config.food_delivery_cost
+    # an expedited order adds the surcharge on top
+    client.post("/supplies/order", json={"item": "dog_food", "qty": 1, "expedited": True})
+    final = client.get("/account").json()["cost_breakdown"]["supplies"]
+    assert final == after + world.config.food_delivery_cost + world.config.expedited_surcharge
+
+
 def test_account_no_hidden(client):
     r = client.get("/account")
     assert r.status_code == 200

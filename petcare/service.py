@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from petcare.world import World
@@ -191,7 +191,7 @@ def create_app(world: World) -> FastAPI:
     def supplies_order(body: OrderBody):
         order = world.place_order(body.item, body.qty, body.expedited)
         _record_action("order", item=body.item, qty=body.qty,
-                       expedited=body.expedited)
+                       expedited=body.expedited, cost=order.cost)
         return {
             "ok": True,
             "item": order.item,

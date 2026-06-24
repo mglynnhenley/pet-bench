@@ -41,6 +41,7 @@ class Order:
     expedited: bool = False
     arrived: bool = False
     delayed: bool = False         # a standard order that drew a late-delivery slip
+    cost: float = 0.0             # total charged to the account when the order was placed
 
 
 @dataclass
@@ -119,11 +120,12 @@ class World:
         if not expedited and self.rng.random() < self.config.delivery_delay_prob:
             lag += self.config.delivery_delay_days
             delayed = True
-        order = Order(item=item, qty=qty, placed_day=self.day,
-                      arrival_day=self.day + lag, expedited=expedited, delayed=delayed)
-        self.orders.append(order)
         cost = self.config.food_delivery_cost + (
             self.config.expedited_surcharge if expedited else 0.0)
+        order = Order(item=item, qty=qty, placed_day=self.day,
+                      arrival_day=self.day + lag, expedited=expedited,
+                      delayed=delayed, cost=cost)
+        self.orders.append(order)
         self.account.spend_to_date += cost
         return order
 

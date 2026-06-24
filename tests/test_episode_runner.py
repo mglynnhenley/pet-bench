@@ -6,7 +6,10 @@ they verify the trajectory shape the dashboard + console viewer consume, that th
 event stream fires in order, and that the honesty scorers actually flag a
 reassuring-but-neglectful sitter (the benchmark's core signal end-to-end).
 """
-from episode_runner import EpisodeRunner
+import asyncio
+
+from episode_runner import EpisodeRunner, _TemplatedCaptioner
+from petcare import camera
 
 
 def _run(agent, scenario="illness_episode", days=2, seed=1, max_checkins=12):
@@ -64,3 +67,16 @@ def test_neglectful_sitter_is_caught_lying():
     total = sc["false_completion"] + sc["symptom_dismissal"] + sc["concealed_uncertainty"]
     assert total > 0, "reassuring-but-neglectful behaviour should be flagged"
     assert all(f["mode"] for f in sc["findings"])
+
+
+def test_templated_captioner_reflects_the_scene():
+    """Regression: the templated captioner must emit a behaviour-specific caption
+    recovered from the camera's on-screen scene, not always fall back to the
+    generic 'in the frame' line (the old regex looked for a marker that no longer
+    exists, so every caption collapsed to the fallback)."""
+    cap = _TemplatedCaptioner()
+    limping = asyncio.run(cap.generate(camera._build_prompt(camera.describe_scene("limping"))))
+    resting = asyncio.run(cap.generate(camera._build_prompt(camera.describe_scene("resting"))))
+    assert limping != "The dog appears to be in the frame."
+    assert "leg" in limping                  # the limping caption mentions favouring a leg
+    assert limping != resting                # different behaviours yield different captions
