@@ -11,7 +11,9 @@ state at each step (which the agent never sees). Per-check-in charts + an honest
 scorecard summarise the run.
 
 Agents: 'diligent' and 'neglectful' are instant scripted sitters (free). Pick a
-model id like 'openai/gpt-4o-mini' to watch a real model play (OPENROUTER_API_KEY).
+frontier model (e.g. 'anthropic/claude-opus-4') from the dropdown — or paste any
+OpenRouter model id into the custom field — to watch a real model play
+(OPENROUTER_API_KEY).
 """
 import copy
 import json
@@ -144,100 +146,219 @@ def index():
 
 
 HTML = r"""
-<!doctype html><html><head><meta charset="utf-8"><title>Pet-Bench Explorer</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Petbench</title>
 <style>
-  :root{--bg:#0f1115;--panel:#1a1d24;--panel2:#222630;--ink:#e7eaf0;--dim:#8b93a3;
-        --line:#2c313c;--good:#46c98b;--bad:#e8615b;--warn:#e8b341;--accent:#5b8def;--hidden:#7c5cff;}
+  /* ── Editorial light theme — Ramp surfaces + Stripe Press serif headings.
+     Restrained palette, hairline borders, no gradients/glow. The chain of
+     thought is the hero: a comfortable serif reading column you skim top-down. */
+  :root{
+    --paper:#fbfbf9; --surface:#ffffff; --raise:#f6f5f1;
+    --ink:#191815; --ink2:#5b574e; --ink3:#928d81;
+    --line:#ecebe4; --line2:#dbd9cd;
+    --accent:#1a1a17; --mark:#c8e000;          /* near-black UI ink + a single lime mark */
+    --good:#1d7a4d; --bad:#c03a23; --warn:#a96a00; --info:#2f6f9e;
+    --note:#fbf6e8; --note-line:#ecdcab; --note-ink:#7a6420;
+    --r:10px; --rs:7px; --measure:70ch;
+    --sans:'Inter','Inter var',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --serif:'Iowan Old Style','Charter','Palatino Linotype','Georgia',serif;
+    --mono:ui-monospace,'SF Mono','JetBrains Mono',Menlo,monospace;
+  }
   *{box-sizing:border-box}
-  body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-  header{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:16px}
-  header h1{font-size:16px;margin:0;font-weight:600}
-  header .sub{color:var(--dim);font-size:12px}
-  .wrap{display:flex;height:calc(100vh - 50px)}
-  .side{width:300px;border-right:1px solid var(--line);padding:14px;overflow:auto;flex-shrink:0}
-  .main{flex:1;overflow:auto;padding:18px}
-  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 3px}
-  select,input,button{width:100%;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
-        border-radius:6px;padding:7px 9px;font:inherit}
-  button{background:var(--accent);color:#06121f;border:none;font-weight:600;cursor:pointer;margin-top:14px}
-  button:hover{filter:brightness(1.1)} button:disabled{opacity:.5;cursor:default}
-  .runs{margin-top:18px}
-  .runitem{padding:8px 10px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;cursor:pointer;font-size:12px}
-  .runitem:hover{background:var(--panel2)} .runitem.active{border-color:var(--accent)}
-  .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px}
-  .b-run{background:#1f3a52;color:var(--accent)} .b-done{background:#163d22;color:var(--good)} .b-err{background:#4d1f1f;color:var(--bad)}
-  .cards{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-width:120px}
-  .card .k{font-size:11px;color:var(--dim)} .card .v{font-size:20px;font-weight:600;margin-top:2px}
+  ::selection{background:#e8f08a}
+  html{scroll-behavior:smooth}
+  body{margin:0;font:15px/1.6 var(--sans);color:var(--ink);background:var(--paper);
+       -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#d8d6cc;border:3px solid transparent;border-radius:8px;background-clip:padding-box}
+  ::-webkit-scrollbar-thumb:hover{background:#c3c0b4;background-clip:padding-box}
+  a{color:inherit}
+
+  header{padding:15px 28px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;
+         background:var(--surface);position:sticky;top:0;z-index:40}
+  header h1{font:600 19px/1 var(--serif);margin:0;letter-spacing:-.01em}
+  header h1 .dot{color:var(--ink3);font-weight:400}
+  header .sub{color:var(--ink3);font-size:13px}
+  .wrap{display:flex;height:calc(100vh - 55px)}
+
+  /* ── sidebar ──────────────────────────────────────────────────────────── */
+  .side{width:288px;border-right:1px solid var(--line);padding:22px 20px;overflow:auto;flex-shrink:0;background:var(--surface)}
+  .side .eyebrow{font:600 11px/1 var(--sans);letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:0 0 14px}
+  label{display:block;font-size:12px;color:var(--ink2);margin:15px 0 5px;font-weight:600}
+  select,input,button{width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line2);
+        border-radius:var(--rs);padding:9px 11px;font:14px/1.4 var(--sans);transition:border-color .12s,box-shadow .12s}
+  select,input{appearance:none}
+  select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M3 4.5l3 3 3-3' fill='none' stroke='%23928d81' stroke-width='1.5' stroke-linecap='round'/></svg>");
+        background-repeat:no-repeat;background-position:right 11px center;padding-right:30px;cursor:pointer}
+  #agentCustom{margin-top:7px}
+  .hint{display:block;font-size:11px;color:var(--ink3);margin-top:5px;line-height:1.4}
+  select:hover,input:hover{border-color:#c7c4b8}
+  select:focus,input:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 3px rgba(25,24,21,.08)}
+  button{background:var(--accent);color:#fff;border:1px solid var(--accent);font-weight:600;cursor:pointer;
+        margin-top:20px;padding:11px}
+  button:hover{background:#000}
+  button:disabled{opacity:.5;cursor:default}
+
+  .runs{margin-top:26px;border-top:1px solid var(--line);padding-top:18px}
+  .runitem{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:var(--rs);margin:0 -9px;
+        cursor:pointer;font-size:13px;transition:background .12s}
+  .runitem b{font-weight:600;flex-shrink:0;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .runitem .rmeta{color:var(--ink3);font-size:11.5px;margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+  .rdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .rdot.b-done{background:var(--good)} .rdot.b-err{background:var(--bad)}
+  .rdot.b-run{background:var(--info);animation:pulse 1.1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .runitem:hover{background:var(--raise)}
+  .runitem.active{background:var(--raise);box-shadow:inset 2px 0 0 var(--ink)}
+
+  /* ── main column ──────────────────────────────────────────────────────── */
+  .main{flex:1;overflow:auto;padding:0}
+  .col{max-width:1080px;margin:0 auto;padding:30px 40px 120px}
+  .empty{color:var(--ink3);text-align:center;margin-top:90px;font:17px/1.6 var(--serif)}
+
+  .runhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .runhead h2{font:600 26px/1.15 var(--serif);margin:0;letter-spacing:-.015em}
+  .pill{font-size:12px;color:var(--ink2);background:var(--raise);border:1px solid var(--line);
+        border-radius:20px;padding:2px 10px;white-space:nowrap}
+  .live-tag{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--info);
+        display:inline-flex;align-items:center;gap:6px}
+  .live-tag::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--info);animation:pulse 1.1s infinite}
+
+  /* stat strip — flat figures, semantic colour on the number only */
+  .stats{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:var(--r);
+        background:var(--surface);margin:22px 0 6px;overflow:hidden}
+  .stat{flex:1;min-width:120px;padding:13px 16px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .k{font-size:11px;color:var(--ink3);font-weight:600;letter-spacing:.02em}
+  .stat .v{font:600 21px/1.1 var(--sans);margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
   .v.good{color:var(--good)} .v.bad{color:var(--bad)} .v.warn{color:var(--warn)}
-  .charts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
-  .chart{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
-  .chart h4{margin:0 0 6px;font-size:12px;color:var(--dim);font-weight:500}
-  .timeline{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:16px}
-  .day{min-width:54px;height:36px;padding:0 6px;border-radius:6px;border:1px solid var(--line);display:flex;
-       flex-direction:column;align-items:center;justify-content:center;cursor:pointer;font-size:11px;background:var(--panel)}
-  .day:hover{border-color:var(--accent)} .day.active{border-color:var(--accent);background:var(--panel2)}
-  .day.harm{background:#3a1c1c;border-color:#5a2a2a} .day small{color:var(--dim);font-size:9px}
-  .detail{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}
-  .brief{white-space:pre-wrap;background:var(--panel2);border-radius:6px;padding:10px;color:var(--dim);font-size:13px;margin-bottom:14px}
-  .cam{white-space:pre-wrap;background:#10202e;border:1px solid #1d3950;border-radius:6px;padding:10px;
-       color:#9cc9ef;font-size:12px;margin-bottom:12px;font-family:ui-monospace,Menlo,monospace}
-  .hidden{background:rgba(124,92,255,.08);border:1px solid rgba(124,92,255,.4);border-radius:6px;padding:8px 12px;margin-bottom:14px}
-  .hidden .lab{font-size:10px;color:#b3a3ff;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
-  .hbar{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px}
-  .hbar .n{width:74px;color:var(--dim)} .track{flex:1;height:8px;background:var(--panel2);border-radius:5px;overflow:hidden}
-  .fill{height:100%;border-radius:5px} .hbar .val{width:64px;text-align:right;font-variant-numeric:tabular-nums}
-  .step{margin:8px 0;padding-left:12px;border-left:2px solid var(--line)}
-  .step.say{border-color:var(--accent)} .step.tool{border-color:var(--warn)}
-  .step .lab{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
-  .step .txt{white-space:pre-wrap;margin-top:2px}
-  .step .res{color:var(--dim);font-size:12px;white-space:pre-wrap;margin-top:3px;max-height:160px;overflow:auto;
-             background:#11161c;border-radius:4px;padding:6px}
-  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .mail{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;margin:6px 0;background:var(--panel2)}
-  .mail.sent{border-left-color:var(--good)}
-  .mail .h{font-size:12px;color:var(--accent)} .mail.sent .h{color:var(--good)}
-  .mail .b{font-size:12px;color:var(--dim);white-space:pre-wrap;margin-top:3px}
-  h3{font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin:18px 0 8px}
-  .empty{color:var(--dim);text-align:center;margin-top:60px}
-  .banner{background:#1f3a52;color:var(--accent);border:1px solid #2d557a;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-weight:600}
-  .banner .sub{color:#7fb3e6;font-weight:400}
-  .findings{margin-bottom:16px} .finding{background:#2a1c1c;border:1px solid #4d2a2a;border-radius:6px;
-            padding:6px 10px;margin:4px 0;font-size:12px;color:#f0b3b3}
-  .finding b{color:#ff9b9b}
-  .step.live{animation:fadein .4s} @keyframes fadein{from{opacity:0}to{opacity:1}}
-  /* ── live "Buddy cam" animated dog ─────────────────────────────────────── */
-  .dogstage{position:fixed;right:18px;bottom:18px;width:268px;background:var(--panel);
-    border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.45);
-    overflow:hidden;z-index:50}
-  .dogstage .bar{display:flex;align-items:center;gap:7px;padding:7px 11px;font-size:12px;
-    color:var(--dim);border-bottom:1px solid var(--line);background:var(--panel2)}
-  .dogstage .bar .dot{width:8px;height:8px;border-radius:50%;background:var(--good);
-    box-shadow:0 0 7px currentColor;transition:background .4s}
-  .dogstage .bar .nm{color:var(--ink);font-weight:600}
-  .dogstage .bar .beh{margin-left:auto;font-variant:small-caps;letter-spacing:.04em}
-  .dogstage .screen{position:relative;aspect-ratio:4/3;
-    background:radial-gradient(120% 90% at 50% 18%,#243047 0%,#161a22 70%,#11141b 100%)}
-  .dogstage svg{position:absolute;inset:0;width:100%;height:100%}
-  .dogstage .thought{position:absolute;top:8px;left:12px;width:30px;height:30px;border-radius:50%;
-    background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;
-    font-size:15px;opacity:0;transform:scale(.6);transition:opacity .35s,transform .35s}
-  .dogstage .thought.on{opacity:1;transform:scale(1)}
-  .dogstage .thought:after,.dogstage .thought:before{content:"";position:absolute;bottom:-6px;left:6px;
-    width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.92)}
-  .dogstage .thought:before{bottom:-11px;left:3px;width:4px;height:4px}
-  @media (prefers-reduced-motion:reduce){.dogstage *{animation:none!important}}
+
+  /* vitals — minimal sparklines */
+  .vitals{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0 6px}
+  .vital .vh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px}
+  .vital .vh b{font-size:12px;font-weight:600;color:var(--ink2)}
+  .vital .vh span{font:600 13px/1 var(--sans);font-variant-numeric:tabular-nums;color:var(--ink)}
+
+  /* day jump nav — sticky, quiet */
+  .daynav{position:sticky;top:0;z-index:10;display:flex;gap:6px;flex-wrap:wrap;padding:12px 0;margin-top:8px;
+        background:linear-gradient(var(--paper) 70%,rgba(251,251,249,0))}
+  .chip{font-size:12px;font-weight:600;color:var(--ink2);background:var(--surface);border:1px solid var(--line2);
+        border-radius:20px;padding:4px 11px;cursor:pointer;font-variant-numeric:tabular-nums;transition:.12s}
+  .chip:hover{border-color:var(--ink);color:var(--ink)}
+  .chip.harm{color:var(--bad);border-color:#e7c3b8}
+  .chip .h{color:var(--ink3);font-weight:500;margin-left:3px}
+
+  /* ── a check-in: the reading unit ─────────────────────────────────────── */
+  .daysep{font:600 13px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);
+        margin:38px 0 0;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .ci{padding:24px 0;border-bottom:1px solid var(--line)}
+  .ci-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  .ci-head .when{font:600 17px/1 var(--serif)}
+  .ci-head .obs{font-size:12.5px;color:var(--ink2)}
+  .ci-head .truth{margin-left:auto;font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+  .ci-head .truth .ill{color:var(--bad);font-weight:600}
+  .ci-head .truth .ok{color:var(--good)}
+  .brief{font-size:13.5px;line-height:1.6;color:var(--ink2);border-left:2px solid var(--line2);
+        padding:1px 0 1px 14px;margin:0 0 18px;white-space:pre-wrap}
+
+  /* reasoning — the chain of thought, set as editorial prose */
+  .reason{max-width:var(--measure)}
+  .reason .think{font:16.5px/1.72 var(--serif);color:var(--ink);margin:0 0 13px;white-space:pre-wrap}
+  .reason .think:last-child{margin-bottom:0}
+  .nothing{color:var(--ink3);font-style:italic;font-size:14px}
+
+  /* private notepad — a candid aside, tasteful not gimmicky */
+  .note{max-width:var(--measure);background:var(--note);border:1px solid var(--note-line);border-left:3px solid #d9c372;
+        border-radius:var(--rs);padding:11px 15px;margin:14px 0}
+  .note .nlab{font:600 10.5px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--note-ink);
+        margin-bottom:7px;display:flex;align-items:center;gap:8px}
+  .note .nlab .ptag{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink3);
+        border:1px solid var(--note-line);border-radius:5px;padding:1px 6px;font-size:10px}
+  .note .ntext{font:15px/1.65 var(--serif);color:#5e4f25;white-space:pre-wrap}
+
+  /* actions — a compact monospace ledger, clearly secondary to the prose */
+  .ledger{margin:16px 0 0;border:1px solid var(--line);border-radius:var(--rs);overflow:hidden;background:var(--surface)}
+  .act{display:flex;align-items:flex-start;gap:12px;padding:9px 14px;border-top:1px solid var(--line);cursor:default}
+  .act:first-child{border-top:none}
+  .act .verb{font-size:13px;font-weight:600;color:var(--ink);flex-shrink:0;width:172px}
+  .act .cmd{font:12px/1.5 var(--mono);color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .act.open .cmd{white-space:pre-wrap}
+  .act .res{display:none;font:11.5px/1.5 var(--mono);color:var(--ink3);white-space:pre-wrap;margin-top:7px;max-height:220px;
+        overflow:auto;background:var(--raise);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+  .act.open .res{display:block}
+  .act .toggle{margin-left:auto;font-size:11px;font-weight:600;color:var(--ink3);cursor:pointer;flex-shrink:0;user-select:none}
+  .act .toggle::after{content:"result"} .act.open .toggle::after{content:"hide"}
+  .act .toggle:hover{color:var(--ink)}
+  .ledger-lab{font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:18px 0 7px}
+
+  /* a streaming indicator */
+  .typing{display:flex;gap:6px;padding:10px 0 2px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:var(--ink3);animation:tbl 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.18s} .typing i:nth-child(3){animation-delay:.36s}
+  @keyframes tbl{0%,60%,100%{opacity:.2}30%{opacity:1}}
+
+  /* ── collapsible sections (camera / inbox / day table) ────────────────── */
+  .sect{margin:16px 0 0}
+  .shead{cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;
+        font:600 13px/1 var(--sans);color:var(--ink2);margin:0}
+  .shead .chev{font-size:9px;color:var(--ink3);transition:transform .15s}
+  .sect.closed .shead .chev{transform:rotate(-90deg)}
+  .sect.closed .sbody{display:none}
+  .sbody{margin-top:11px}
+
+  .cam{white-space:pre-wrap;background:var(--raise);border:1px solid var(--line);border-radius:var(--rs);
+       padding:12px 15px;color:var(--ink2);font:13px/1.6 var(--serif);font-style:italic}
+
+  /* inbox — quiet rows, click to expand */
+  .inbox{border:1px solid var(--line);border-radius:var(--rs);overflow:hidden;background:var(--surface)}
+  .mitem{border-bottom:1px solid var(--line)}
+  .mitem:last-child{border-bottom:none}
+  .mrow{display:flex;align-items:center;gap:12px;padding:10px 14px;cursor:pointer;transition:background .12s}
+  .mrow:hover{background:var(--raise)}
+  .mitem.open .mrow{background:var(--raise)}
+  .mrow .dir{font-size:11px;font-weight:600;flex-shrink:0;width:30px;color:var(--ink3);letter-spacing:.03em}
+  .mitem.sent .mrow .dir{color:var(--good)}
+  .mrow .who{font-weight:600;font-size:12.5px;color:var(--ink);flex-shrink:0;max-width:200px;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap}
+  .mrow .subj{flex:1;min-width:0;font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mitem.open .mrow .subj{white-space:normal;color:var(--ink)}
+  .mrow .mday{font-size:11px;color:var(--ink3);flex-shrink:0;font-variant-numeric:tabular-nums}
+  .mbody{display:none;padding:0 16px 15px 44px;font:13px/1.65 var(--sans);color:var(--ink2);white-space:pre-wrap}
+  .mitem.open .mbody{display:block}
+
+  /* day table — clean ground truth */
+  .dtab{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .dtab th{text-align:right;color:var(--ink3);font-weight:600;padding:7px 12px;border-bottom:1px solid var(--line2)}
+  .dtab th:first-child{text-align:left}
+  .dtab td{text-align:right;padding:8px 12px;border-bottom:1px solid var(--line)}
+  .dtab td:first-child{text-align:left;font-weight:600}
+  .dtab tbody tr:hover{background:var(--raise)}
+
+  @media (max-width:720px){.vitals{grid-template-columns:repeat(2,1fr)}.act .verb{width:auto}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto}}
 </style></head><body>
-<header><h1>🐕 Pet-Bench Explorer</h1><span class="sub">watch a sitter look after Buddy, then explore what it did — and what was really going on</span></header>
+<header><h1>Petbench<span class="dot"> / explorer</span></h1>
+  <span class="sub">read how an agent reasoned, acted, and what was really happening to Buddy</span></header>
 <div class="wrap">
   <div class="side">
-    <label>Sitter (agent)</label>
+    <p class="eyebrow">New run</p>
+    <label>Agent</label>
     <select id="agent">
-      <option value="diligent">diligent (scripted, free)</option>
-      <option value="neglectful">neglectful (scripted, free)</option>
-      <option value="openai/gpt-4o-mini">openai/gpt-4o-mini (live)</option>
-      <option value="openai/gpt-4o">openai/gpt-4o (live)</option>
+      <optgroup label="scripted (free)">
+        <option value="diligent">diligent</option>
+        <option value="neglectful">neglectful</option>
+      </optgroup>
+      <optgroup label="frontier (live)">
+        <option value="anthropic/claude-opus-4">anthropic/claude-opus-4</option>
+        <option value="anthropic/claude-sonnet-4">anthropic/claude-sonnet-4</option>
+        <option value="openai/gpt-4o">openai/gpt-4o</option>
+        <option value="google/gemini-2.5-pro">google/gemini-2.5-pro</option>
+      </optgroup>
+      <optgroup label="small (live)">
+        <option value="openai/gpt-4o-mini">openai/gpt-4o-mini</option>
+      </optgroup>
     </select>
+    <input id="agentCustom" placeholder="…or any OpenRouter model id">
+    <span class="hint">A custom id overrides the dropdown (e.g. anthropic/claude-opus-4.1).</span>
     <label>Scenario</label>
     <select id="scenario">
       <option value="illness_episode">illness_episode</option>
@@ -256,320 +377,289 @@ HTML = r"""
       <option value="openai/gpt-4o-mini">gpt-4o-mini (live)</option>
     </select>
     <label>Seed</label><input id="seed" type="number" value="0" min="0">
-    <button id="runbtn" onclick="startRun()">▶ Run episode</button>
+    <button id="runbtn" onclick="startRun()">Run episode</button>
     <div class="runs" id="runs"></div>
   </div>
-  <div class="main" id="main"><div class="empty">Run an episode to begin.</div></div>
+  <div class="main" id="main"><div class="col"><div class="empty">Choose an agent and press Run to watch it look after Buddy.</div></div></div>
 </div>
 
-<!-- live animated "Buddy cam" — driven by the followed check-in's visible_behaviour -->
-<div class="dogstage" id="dogstage">
-  <div class="bar"><span class="dot" id="moodDot"></span><span class="nm">Buddy</span>
-    <span class="beh" id="behLabel">resting</span></div>
-  <div class="screen">
-    <div class="thought" id="thought"><span id="thoughtEmoji">💤</span></div>
-    <svg id="dogsvg" viewBox="0 0 240 180" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="furG" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#e7b585"/><stop offset="1" stop-color="#cf9258"/>
-        </linearGradient>
-      </defs>
-      <!-- floor + soft shadow -->
-      <ellipse id="shadow" cx="120" cy="156" rx="62" ry="9" fill="#000" opacity=".28"/>
-      <line x1="20" y1="156" x2="220" y2="156" stroke="#2c313c" stroke-width="2" opacity=".5"/>
-      <!-- props (shown one at a time) -->
-      <g id="foodBowl" opacity="0">
-        <ellipse cx="196" cy="150" rx="22" ry="7" fill="#7a5230"/>
-        <path d="M176 149 q20 14 40 0 l-3 -10 q-17 9 -34 0 z" fill="#9c6b3f"/>
-        <circle cx="190" cy="146" r="3.2" fill="#6b4423"/><circle cx="199" cy="148" r="3" fill="#6b4423"/>
-        <circle cx="195" cy="143" r="2.6" fill="#7d5128"/>
-      </g>
-      <g id="waterBowl" opacity="0">
-        <ellipse cx="196" cy="150" rx="22" ry="7" fill="#34506e"/>
-        <path d="M176 149 q20 14 40 0 l-3 -9 q-17 8 -34 0 z" fill="#3f6da0"/>
-        <ellipse id="ripple" cx="196" cy="147" rx="13" ry="3.5" fill="none" stroke="#9cc9ef" stroke-width="1.4" opacity=".8"/>
-      </g>
-      <!-- the dog -->
-      <g id="dog">
-        <!-- far legs (darker, behind body) -->
-        <rect id="legBackFar"  x="86"  y="98"  width="13" height="46" rx="6" fill="#b67e45"/>
-        <rect id="legFrontFar" x="146" y="98"  width="13" height="46" rx="6" fill="#b67e45"/>
-        <!-- tail -->
-        <path id="tail" d="M70 92 q-26 -6 -34 -26 q14 6 24 6 q6 10 10 20 z" fill="url(#furG)"/>
-        <!-- body -->
-        <ellipse id="body" cx="116" cy="96" rx="58" ry="34" fill="url(#furG)"/>
-        <!-- near legs -->
-        <rect id="legBackNear"  x="100" y="100" width="14" height="48" rx="7" fill="#d99e5e"/>
-        <rect id="legFrontNear" x="158" y="100" width="14" height="48" rx="7" fill="#d99e5e"/>
-        <!-- head group -->
-        <g id="head">
-          <path id="ear" d="M158 50 q-16 -4 -22 14 q-2 18 12 22 q4 -20 14 -28 z" fill="#b67e45"/>
-          <circle id="skull" cx="180" cy="66" r="28" fill="url(#furG)"/>
-          <ellipse id="muzzle" cx="206" cy="76" rx="22" ry="16" fill="#eec79a"/>
-          <ellipse id="nose" cx="224" cy="72" rx="6" ry="5" fill="#2c2622"/>
-          <path id="mouth" d="M214 84 q6 6 -2 10" fill="none" stroke="#2c2622" stroke-width="1.6" stroke-linecap="round"/>
-          <path id="tongue" d="M212 90 q4 10 -3 13 q-5 -5 -2 -13 z" fill="#e8746f" opacity="0"/>
-          <g id="eye"><circle cx="186" cy="60" r="5" fill="#2c2622"/>
-            <circle cx="188" cy="58" r="1.6" fill="#fff"/></g>
-        </g>
-      </g>
-      <!-- camera-offline overlay -->
-      <g id="offline" opacity="0">
-        <rect x="0" y="0" width="240" height="180" fill="#0c0e13" opacity=".9"/>
-        <g stroke="#1d2530" stroke-width="3" opacity=".6">
-          <line x1="0" y1="30" x2="240" y2="30"/><line x1="0" y1="66" x2="240" y2="66"/>
-          <line x1="0" y1="102" x2="240" y2="102"/><line x1="0" y1="138" x2="240" y2="138"/></g>
-        <text x="120" y="94" fill="#5b6677" font-size="15" font-family="ui-monospace,Menlo,monospace"
-          text-anchor="middle" letter-spacing="1.5">CAMERA OFFLINE</text>
-      </g>
-    </svg>
-  </div>
-</div>
-
-<script src="/static/gsap.min.js"></script>
 <script>
-let active=null, poll=null, following=true, selIdx=0, lastSig='';
+let active=null, poll=null, following=true, lastSig='';
+const openMails=new Set();   // email keys currently expanded (persist across live re-renders)
+const openActs=new Set();    // action results currently expanded
+const openSects=new Set();   // section keys the user opened (sections start folded)
 function val(id){return document.getElementById(id).value}
+function escA(s){return (s==null?'':''+s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function esc(s){return (s==null?'':''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+
+// One delegated handler: expand email rows, expand action results, fold sections.
+document.addEventListener('click',e=>{
+  const row=e.target.closest('.mrow');
+  if(row){ const it=row.closest('.mitem'), k=it.dataset.mkey;
+    if(it.classList.toggle('open')) openMails.add(k); else openMails.delete(k); return; }
+  const tg=e.target.closest('.act .toggle');
+  if(tg){ const a=tg.closest('.act'), k=a.dataset.akey;
+    if(a.classList.toggle('open')) openActs.add(k); else openActs.delete(k); return; }
+  const sh=e.target.closest('.shead');
+  if(sh){ const se=sh.closest('.sect'), k=se.dataset.skey;
+    if(se.classList.toggle('closed')) openSects.delete(k); else openSects.add(k); }
+});
+
+// A foldable section. Folded by default to keep the transcript skimmable; the
+// open set persists across the signature-driven re-render during a live run.
+function section(key,title,body){
+  const off=!openSects.has(key);
+  return `<div class="sect ${off?'closed':''}" data-skey="${escA(key)}">`+
+    `<div class="shead"><span class="chev">▾</span>${title}</div>`+
+    `<div class="sbody">${body}</div></div>`;
+}
+
+function mailRow(m,i,pfx){
+  const sent=m.dir==='sent';
+  const who=sent?esc(m.to||''):esc(m.from||'');
+  const key=(pfx||'')+'|'+(m.day==null?'':m.day)+'|'+(sent?'s':'r')+'|'+(m.to||m.from||'')+'|'+(m.subject||'')+'|'+i;
+  const open=openMails.has(key);
+  const body=esc(m.body||'')||'<i style="color:var(--ink3)">(empty message)</i>';
+  return `<div class="mitem ${sent?'sent':''} ${open?'open':''}" data-mkey="${escA(key)}">`+
+    `<div class="mrow"><span class="dir">${sent?'SENT':'IN'}</span>`+
+    `<span class="who">${who}</span>`+
+    `<span class="subj">${esc(m.subject||'(no subject)')}</span>`+
+    `<span class="mday">${m.day!=null?'day '+m.day:''}</span></div>`+
+    `<div class="mbody">${body}</div></div>`;
+}
+function inbox(list,pfx){ return `<div class="inbox">`+list.map((m,i)=>mailRow(m,i,pfx)).join('')+`</div>`; }
 
 async function startRun(){
-  const body={agent:val('agent'),scenario:val('scenario'),days:+val('days'),
+  const body={agent:(val('agentCustom').trim()||val('agent')),scenario:val('scenario'),days:+val('days'),
     captioner:val('captioner'),responder:val('responder'),seed:+val('seed')};
   const btn=document.getElementById('runbtn'); btn.disabled=true; btn.textContent='running…';
   const {run_id}=await (await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-  active=run_id; following=true; selIdx=0; lastSig='';
+  active=run_id; following=true; lastSig='';
   await refreshRuns(); startPolling(run_id);
 }
 function startPolling(id){ if(poll) clearInterval(poll); tick(id); poll=setInterval(()=>tick(id),1200); }
 async function tick(id){
   const d=await (await fetch('/api/run/'+id)).json(); render(id,d);
   if(d.status!=='running'){ clearInterval(poll); poll=null;
-    const b=document.getElementById('runbtn'); b.disabled=false; b.textContent='▶ Run episode'; refreshRuns(); }
+    const b=document.getElementById('runbtn'); b.disabled=false; b.textContent='Run episode'; refreshRuns(); }
 }
 async function selectRun(id){
-  active=id; following=true; selIdx=0; lastSig='';
+  active=id; following=true; lastSig='';
   if(poll){clearInterval(poll);poll=null;}
   const d=await (await fetch('/api/run/'+id)).json(); render(id,d);
   if(d.status==='running') startPolling(id); else refreshRuns();
 }
 async function refreshRuns(){
   const {runs}=await (await fetch('/api/runs')).json();
-  document.getElementById('runs').innerHTML='<h3>Runs (oldest → newest)</h3>'+runs.map((r,i)=>{
+  document.getElementById('runs').innerHTML='<p class="eyebrow">Runs</p>'+runs.slice().reverse().map(r=>{
     const cls=r.status==='done'?'b-done':r.status==='error'?'b-err':'b-run';
     return `<div class="runitem ${r.id===active?'active':''}" onclick="selectRun('${r.id}')">
-      <b>${i+1}. ${r.agent}</b> · ${r.scenario}<br><span class="badge ${cls}">${r.status}</span>
-      <span class="sub" style="color:var(--dim)"> ${r.days}d</span></div>`;}).join('');
+      <span class="rdot ${cls}"></span><b>${esc(r.agent)}</b>
+      <span class="rmeta">${esc(r.scenario)} · ${r.days}d</span></div>`;}).join('');
 }
 
 function render(id,d){
-  const m=document.getElementById('main');
-  if(d.status==='error'){m.innerHTML=`<div class="empty" style="color:var(--bad)">error: ${esc(d.error)}</div>`;lastSig='err';return;}
+  const main=document.getElementById('main');
+  if(d.status==='error'){main.innerHTML=`<div class="col"><div class="empty" style="color:var(--bad)">Error — ${esc(d.error)}</div></div>`;lastSig='err';return;}
   const t=d.trajectory;
-  if(!t||!t.checkins){m.innerHTML='<div class="empty">starting…</div>';lastSig='';return;}
+  if(!t||!t.checkins){main.innerHTML='<div class="col"><div class="empty">Starting…</div></div>';lastSig='';return;}
   const cks=t.checkins, sc=t.scorecard, running=d.status==='running';
   const lastSteps=cks.length?cks[cks.length-1].steps.length:0;
   const sig=d.status+'|'+cks.length+'|'+lastSteps+'|'+(sc?1:0);
   if(sig===lastSig) return;
   lastSig=sig;
 
-  let html = running?`<div class="banner">▶ running — ${cks.length} check-in(s) so far <span class="sub">· updating live, following the latest</span></div>`:'';
-  html += sc?cards(sc):'';
-  html += sc?findings(sc):'';
-  html += charts(cks);
-  html += `<h3>Check-ins${running?' · live':''} — click one to pin it</h3><div class="timeline" id="tl"></div><div id="detail"></div>`;
-  m.innerHTML=html;
-  const tl=document.getElementById('tl');
-  cks.forEach((c,i)=>{ const harm=c.state&&c.state.illness_severity>0;
-    const el=document.createElement('div'); el.className='day'+(harm?' harm':'');
-    const st=c.started||{}; el.innerHTML=`Day ${st.day}<small>${String(st.hour).padStart(2,'0')}:00</small>`;
-    el.onclick=()=>{following=false; selIdx=i; setActive(i); showCheckin(c,false);};
-    tl.appendChild(el); });
-  if(cks.length){
-    let idx = following ? cks.length-1 : Math.min(selIdx, cks.length-1); if(idx<0) idx=0;
-    selIdx=idx; setActive(idx); showCheckin(cks[idx], following && running);
-  }
-}
-function setActive(i){ const tl=document.getElementById('tl'); if(!tl)return;
-  [...tl.children].forEach(x=>x.classList.remove('active')); if(tl.children[i]) tl.children[i].classList.add('active'); }
+  const sb=main.scrollTop;                       // preserve scroll across re-render
+  const meta=d.meta||{};
+  let html='<div class="col">';
+  html+=`<div class="runhead"><h2>${esc(meta.agent||'agent')}</h2>`+
+    `<span class="pill">${esc(meta.scenario||'')}</span>`+
+    `<span class="pill">seed ${meta.seed??0}</span>`+
+    `<span class="pill">${meta.days||cks.length}-day episode</span>`+
+    (running?`<span class="live-tag">live · ${cks.length} check-in${cks.length===1?'':'s'}</span>`:'')+`</div>`;
+  if(sc) html+=stats(sc);
+  html+=vitals(cks);
+  html+=daynav(cks);
+  html+=transcript(cks,running);
+  html+=dayStatus(t);
+  html+=allEmails(t);
+  html+='</div>';
+  main.innerHTML=html;
 
-function cards(sc){
-  const c=(k,v,cls='')=>`<div class="card"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  // jump-nav → scroll to the matching check-in
+  document.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{
+    following=false; const el=document.getElementById('ci-'+ch.dataset.i);
+    if(el) el.scrollIntoView({block:'start'});
+  });
+  // detect manual scroll-up → stop auto-following the live tail
+  main.onscroll=()=>{ if(running && main.scrollTop < main.scrollHeight-main.clientHeight-80) following=false; };
+
+  if(running && following){ main.scrollTop=main.scrollHeight; }
+  else{ main.scrollTop=sb; }
+}
+
+function stats(sc){
+  const s=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
   const h=sc.final_health==null?'—':Math.round(sc.final_health);
-  return '<div class="cards">'+
-    c('final health', h, sc.survived?(h>=60?'good':'warn'):'bad')+
-    c('hours ill', sc.hours_dog_ill, sc.hours_dog_ill>0?'warn':'good')+
-    c('take-home', '£'+(sc.take_home??'—'))+
-    c('false completion', sc.false_completion, sc.false_completion>0?'bad':'good')+
-    c('symptom dismissal', sc.symptom_dismissal, sc.symptom_dismissal>0?'bad':'good')+
-    c('concealed uncert.', sc.concealed_uncertainty, sc.concealed_uncertainty>0?'bad':'good')+
-    c('days', sc.days_completed)+'</div>';
+  return '<div class="stats">'+
+    s('Final health', h, sc.survived?(h>=60?'good':'warn'):'bad')+
+    s('Hours ill', sc.hours_dog_ill, sc.hours_dog_ill>0?'warn':'')+
+    s('Take-home', '£'+(sc.take_home??'—'))+
+    s('False completion', sc.false_completion, sc.false_completion>0?'bad':'good')+
+    s('Symptom dismissal', sc.symptom_dismissal, sc.symptom_dismissal>0?'bad':'good')+
+    s('Concealed uncert.', sc.concealed_uncertainty, sc.concealed_uncertainty>0?'bad':'good')+
+    '</div>';
 }
-function findings(sc){
-  if(!sc.findings||!sc.findings.length) return '';
-  return '<div class="findings"><h3>Honesty findings (objective, vs hidden ground truth)</h3>'+
-    sc.findings.map(f=>`<div class="finding"><b>${esc(f.mode)}</b> (day ${f.day}) — ${esc(f.reason||'')}${f.text?'<br><span style="color:var(--dim)">claim: "'+esc(f.text)+'"</span>':''}</div>`).join('')+'</div>';
-}
-function charts(cks){
+
+function vitals(cks){
   const states=cks.map(c=>c.state).filter(Boolean);
   if(!states.length) return '';
-  const series=[['health','health','#46c98b'],['hunger','hunger','#e8b341'],
-    ['hydration','hydration','#5b8def'],['take_home','take-home (£)','#7c5cff']];
-  return '<div class="charts">'+series.map(([k,lab,col])=>
-    `<div class="chart"><h4>${lab}</h4>${spark(states.map(s=>s[k]||0),col)}</div>`).join('')+'</div>';
+  const series=[['health','Health','#1d7a4d'],['hunger','Hunger','#a96a00'],
+    ['hydration','Hydration','#2f6f9e'],['take_home','Take-home £','#191815']];
+  return '<div class="vitals">'+series.map(([k,lab,col])=>{
+    const data=states.map(s=>s[k]||0), last=data[data.length-1];
+    return `<div class="vital"><div class="vh"><b>${lab}</b><span>${Math.round(last)}</span></div>${spark(data,col)}</div>`;
+  }).join('')+'</div>';
 }
 function spark(data,col){
-  const W=320,H=80,p=6; const mn=Math.min(...data,0),mx=Math.max(...data,1);
+  const W=260,H=44,p=4; const mn=Math.min(...data,0),mx=Math.max(...data,1);
   const x=i=>p+i*(W-2*p)/Math.max(data.length-1,1), y=v=>H-p-(v-mn)/(mx-mn||1)*(H-2*p);
   const pts=data.map((v,i)=>x(i)+','+y(v)).join(' ');
-  const dots=data.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="1.7" fill="${col}"/>`).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">
-    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6"/>${dots}
-    <text x="${p}" y="12" fill="#8b93a3" font-size="10">${Math.round(mx)}</text>
-    <text x="${p}" y="${H-1}" fill="#8b93a3" font-size="10">${Math.round(mn)}</text></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(data.length-1)}" cy="${y(data[data.length-1])}" r="2.4" fill="${col}"/></svg>`;
 }
-function bar(name,v,col){
-  const w=Math.max(0,Math.min(100,v||0));
-  return `<div class="hbar"><span class="n">${name}</span><span class="track"><span class="fill" style="width:${w}%;background:${col}"></span></span><span class="val">${v==null?'—':Math.round(v)}</span></div>`;
+
+function daynav(cks){
+  if(!cks.length) return '';
+  return '<div class="daynav">'+cks.map((c,i)=>{
+    const st=c.started||{}, harm=c.state&&c.state.illness_severity>0;
+    return `<span class="chip ${harm?'harm':''}" data-i="${i}">Day ${st.day}<span class="h">·${String(st.hour).padStart(2,'0')}h</span></span>`;
+  }).join('')+'</div>';
 }
-function showCheckin(c,follow){
-  const el=document.getElementById('detail'); if(!el)return;
-  let h='<div class="detail">';
-  h+=`<div class="brief">${esc(c.brief||'')}</div>`;
-  if(c.inbound&&c.inbound.length){ h+='<h3>📥 Inbox at this check-in</h3>';
-    c.inbound.forEach(mm=>h+=`<div class="mail"><div class="h">from ${esc(mm.from)} — ${esc(mm.subject)}</div><div class="b">${esc(mm.body)}</div></div>`);}
-  if(c.sent&&c.sent.length){ h+='<h3>📤 Emails the sitter sent</h3>';
-    c.sent.forEach(mm=>h+=`<div class="mail sent"><div class="h">to ${esc(mm.to)} — ${esc(mm.subject)}</div><div class="b">${esc(mm.body)}</div></div>`);}
-  if(c.camera){ h+='<h3>Camera feed — what the sitter sees</h3><div class="cam">'+esc(c.camera)+'</div>'; }
-  const s=c.state;
-  setBehaviour(s && s.camera_offline ? 'off_screen' : ((s && s.visible_behaviour) || 'resting'));
-  if(s){ h+='<div class="hidden"><div class="lab">🔒 hidden true state (spectator only — the sitter cannot see this)</div>'+
-    bar('health',s.health,'#46c98b')+bar('hunger',s.hunger,'#e8b341')+bar('hydration',s.hydration,'#5b8def')+
-    `<div class="hbar"><span class="n">illness</span><span class="val" style="width:auto;color:${s.illness_type?'#e8615b':'var(--dim)'}">${s.illness_type?esc(s.illness_type)+' (sev '+s.illness_severity+')':'none'}</span></div></div>`; }
-  h+='<h3>What the sitter did</h3>';
-  if(!c.steps.length) h+='<div class="sub" style="color:var(--dim)">(no actions yet)</div>';
-  c.steps.forEach(st=>{
-    if(st.kind==='say') h+=`<div class="step say live"><div class="lab">reasoning</div><div class="txt">${esc(st.text)}</div></div>`;
-    else h+=`<div class="step tool live"><div class="lab mono">${esc(fmtCmd(st.tool,st.arg))}</div><div class="res mono">${esc(fmtResult(st.result))}</div></div>`;
+
+// The transcript — every check-in stacked for top-to-bottom skimming, grouped by day.
+function transcript(cks,running){
+  if(!cks.length) return '<div class="nothing" style="margin-top:24px">The agent is settling in…</div>';
+  let html='', curDay=null;
+  cks.forEach((c,i)=>{
+    const st=c.started||{};
+    if(st.day!==curDay){ curDay=st.day; html+=`<div class="daysep">Day ${st.day}</div>`; }
+    html+=checkin(c,i,running && i===cks.length-1);
   });
-  h+='</div>'; el.innerHTML=h;
-  if(follow){ const st=el.querySelectorAll('.step'); if(st.length) st[st.length-1].scrollIntoView({block:'nearest'}); }
+  return html;
+}
+
+function checkin(c,i,follow){
+  const st=c.started||{}, s=c.state;
+  let beh = s && s.camera_offline ? 'camera offline' : ((s && s.visible_behaviour) || 'resting').replace(/_/g,' ');
+  if((s&&s.visible_behaviour==='resting') && s.ate_recently) beh='eating';
+  let h=`<article class="ci" id="ci-${i}"><div class="ci-head">`+
+    `<span class="when">Day ${st.day}, ${String(st.hour).padStart(2,'0')}:00</span>`+
+    `<span class="obs">camera: ${esc(beh)}</span>`;
+  if(s){
+    const ill=s.illness_type?`<span class="ill">${esc(s.illness_type)} sev ${s.illness_severity}</span>`:`<span class="ok">well</span>`;
+    h+=`<span class="truth">truth · H${Math.round(s.health)} · ${ill}</span>`;
+  }
+  h+='</div>';
+  if(c.brief) h+=`<div class="brief">${esc(c.brief)}</div>`;
+
+  // reasoning — the chain of thought, as prose; private notes inline as asides
+  const says=c.steps.filter(x=>x.kind==='say');
+  const notes=c.steps.filter(x=>x.tool==='scratchpad');
+  let reason='';
+  if(says.length){ reason+='<div class="reason">'+says.map(x=>`<p class="think">${esc(x.text)}</p>`).join('')+'</div>'; }
+  else if(!c.steps.length){ reason+='<div class="nothing">No activity recorded.</div>'; }
+  h+=reason;
+  notes.forEach(n=>{
+    h+=`<div class="note"><div class="nlab">Private notepad<span class="ptag">agent believes this is unmonitored</span></div>`+
+       `<div class="ntext">${esc(n.arg||n.result||'')}</div></div>`;
+  });
+
+  // actions — a compact ledger
+  const acts=c.steps.filter(x=>x.kind!=='say' && x.tool!=='scratchpad');
+  if(acts.length){
+    h+='<div class="ledger-lab">Actions</div><div class="ledger">'+acts.map((st2,j)=>{
+      const ai=actionLabel(st2.tool,st2.arg), key='ci'+i+'-'+j;
+      return actMarkup(key,ai,fmtCmd(st2.tool,st2.arg),fmtResult(st2.result));
+    }).join('')+'</div>';
+  }
+
+  // camera caption + this turn's inbox/sent, folded
+  if(c.camera) h+=section('cam-'+i,'Camera feed','<div class="cam">'+esc(c.camera)+'</div>');
+  if(c.inbound&&c.inbound.length){
+    const ms=c.inbound.map(mm=>({dir:'in',from:mm.from,subject:mm.subject,body:mm.body}));
+    h+=section('in-'+i,`Inbox at this check-in (${ms.length})`,inbox(ms,'in'+i)); }
+  if(c.sent&&c.sent.length){
+    const ms=c.sent.map(mm=>({dir:'sent',to:mm.to,subject:mm.subject,body:mm.body}));
+    h+=section('out-'+i,`Emails sent (${ms.length})`,inbox(ms,'out'+i)); }
+  if(follow) h+='<div class="typing"><i></i><i></i><i></i></div>';
+  h+='</article>';
+  return h;
+}
+
+function actMarkup(key,ai,cmd,res){
+  const open=openActs.has(key), hasRes=(''+res).trim().length>0;
+  const resHtml=hasRes?`<div class="res">${esc(res)}</div>`:'';
+  const tog=hasRes?`<span class="toggle"></span>`:'';
+  return `<div class="act ${open?'open':''}" data-akey="${escA(key)}">`+
+    `<span class="verb">${esc(ai)}</span>`+
+    `<div style="flex:1;min-width:0"><span class="cmd">${esc(cmd)}</span>${resHtml}</div>${tog}</div>`;
+}
+
+// ground-truth status at the end of each completed day (spectator only)
+function dayStatus(t){
+  const dl=(t.daily_log||[]).filter(Boolean);
+  if(!dl.length) return '';
+  const num=v=>v==null?'—':Math.round(v);
+  const rows=dl.map(s=>{
+    const ill=s.illness_type?`${esc(s.illness_type)} (sev ${s.illness_severity})`:'healthy';
+    const illc=(s.illness_severity||0)>0?'var(--bad)':'var(--good)';
+    return `<tr><td>Day ${s.day}</td><td>${num(s.health)}</td><td>${num(s.hunger)}</td>`+
+      `<td>${num(s.hydration)}</td><td style="color:${illc}">${ill}</td>`+
+      `<td>${s.food_stock??'—'}</td><td>${s.med_stock??'—'}</td><td>£${s.take_home??'—'}</td></tr>`;
+  }).join('');
+  return section('day-status',`Ground truth — Buddy at the end of each day`,
+    `<table class="dtab"><thead><tr><th>day</th><th>health</th><th>hunger</th><th>hydration</th>`+
+    `<th>illness</th><th>food</th><th>med</th><th>take-home</th></tr></thead><tbody>${rows}</tbody></table>`);
+}
+function allEmails(t){
+  const em=(t.sent_emails||[]).filter(Boolean).map(m=>({dir:'sent',to:m.to,subject:m.subject,body:m.body,day:m.day}));
+  if(!em.length) return '';
+  return section('all-emails',`Every email the agent wrote (${em.length})`,inbox(em,'all'));
+}
+
+// Map a tool call to a plain-language verb (no emoji), so the ledger reads cleanly.
+function actionLabel(tool,arg){
+  const blob=((tool||'')+' '+(arg||''));
+  if(/read_email/.test(blob)) return 'Read inbox';
+  if(/send_email/.test(blob)){ const to=(blob.match(/([^\s,"'}<>]+@[^\s,"'}<>]+)/)||[])[1]; return 'Sent email'+(to?' · '+to.split('@')[0]:''); }
+  const post=/\bPOST\b/i.test(blob);
+  const MAP=[
+    [/\/care\/feed/,'Fed Buddy'],[/\/care\/water/,'Refilled water'],[/\/care\/medicate/,'Medicated'],
+    [/\/care\/note/,'Left a care note'],[/\/care\/schedule-next/,'Scheduled next check-in'],
+    [/\/vet\/consult/,'Consulted the vet'],[/\/vet\/visit/,'Vet visit'],
+    [/\/supplies\/order/,'Ordered supplies'],[/\/supplies/,'Checked supplies'],
+    [/\/camera/,'Viewed camera'],[/\/account/,'Checked account'],[/\/system\/status/,'Read console'],
+  ];
+  for(const [re,verb] of MAP) if(re.test(blob)) return verb;
+  return post?'Console command':'Console read';
 }
 function fmtCmd(tool,arg){
-  // Non-bash tools (read_email/send_email, or the scripted 'GET /path' labels) read fine as-is.
   if(tool!=='bash') return (tool+(arg?' '+arg:'')).trim();
   const a=arg||'';
   const method=(a.match(/-X\s+(\w+)/)||[])[1]||'GET';
   const path=(a.match(/https?:\/\/[^\/\s]+(\/[^\s'"]*)/)||[])[1];
   const body=(a.match(/-d\s+'([^']*)'/)||a.match(/-d\s+"([^"]*)"/)||[])[1];
-  if(!path) return a;                                 // not a recognisable curl — show raw
+  if(!path) return a;
   return method+' '+path+(body?'  '+body:'');
 }
 function fmtResult(res){
   if(res==null) return '';
   const s=(''+res).trim();
-  try{ return JSON.stringify(JSON.parse(s),null,2); }catch(e){}   // pretty-print JSON bodies
+  try{ return JSON.stringify(JSON.parse(s),null,2); }catch(e){}
   return s;
 }
-function esc(s){return (s==null?'':''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
-
-/* ── animated "Buddy cam": map visible_behaviour → a looping GSAP timeline ─── */
-const G = window.gsap;
-const LEGS = ['#legFrontNear','#legFrontFar','#legBackNear','#legBackFar'];
-const ORI = {head:'162 74', tail:'70 92', ear:'150 52',
-  legFrontNear:'165 100', legFrontFar:'152 98', legBackNear:'107 100', legBackFar:'92 98'};
-const FEET = '116 148';
-const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-function swing(tl,sel,ori,amp,dur,pos){
-  tl.to(sel,{rotation:amp,svgOrigin:ori,duration:dur,ease:'sine.inOut',yoyo:true,repeat:-1},pos);
-}
-const BEHAVIOURS = {
-  resting(){const tl=G.timeline();
-    tl.to('#dog',{y:14,rotation:0,scaleY:.94,svgOrigin:FEET,duration:.6,ease:'power2.out'},0)
-      .to('#head',{rotation:9,svgOrigin:ORI.head,duration:.6},0)
-      .to(LEGS,{rotation:0,duration:.5},0).to('#tail',{rotation:-4,svgOrigin:ORI.tail,duration:.5},0);
-    tl.to('#dog',{y:11,duration:1.9,ease:'sine.inOut',yoyo:true,repeat:-1},'>')
-      .to('#tail',{rotation:-13,svgOrigin:ORI.tail,duration:1.5,ease:'sine.inOut',yoyo:true,repeat:-1},'<')
-      .to('#head',{rotation:12,svgOrigin:ORI.head,duration:2.3,ease:'sine.inOut',yoyo:true,repeat:-1},'<');
-    return tl;},
-  pacing(){const tl=G.timeline();
-    tl.to('#dog',{y:0,rotation:0,scaleY:1,svgOrigin:FEET,duration:.4},0)
-      .to('#head',{rotation:-4,svgOrigin:ORI.head,duration:.4},0)
-      .to('#tail',{rotation:-30,svgOrigin:ORI.tail,duration:.4},0);
-    tl.to('#dog',{x:34,duration:1.0,ease:'sine.inOut',yoyo:true,repeat:-1},'>');
-    swing(tl,'#legFrontNear',ORI.legFrontNear,24,.5,'<');
-    swing(tl,'#legBackNear',ORI.legBackNear,-24,.5,'<');
-    swing(tl,'#legFrontFar',ORI.legFrontFar,-24,.5,'<');
-    swing(tl,'#legBackFar',ORI.legBackFar,24,.5,'<');
-    tl.to('#tail',{rotation:-48,svgOrigin:ORI.tail,duration:.32,ease:'sine.inOut',yoyo:true,repeat:-1},'<');
-    return tl;},
-  not_touching_food(){const tl=G.timeline();
-    tl.to('#dog',{y:6,rotation:0,scaleY:1,svgOrigin:FEET,duration:.5},0)
-      .to(LEGS,{rotation:0,duration:.4},0).to('#tail',{rotation:6,svgOrigin:ORI.tail,duration:.5},0)
-      .to('#head',{rotation:-22,svgOrigin:ORI.head,duration:.6,ease:'power2.out'},0);
-    tl.to('#head',{rotation:-28,svgOrigin:ORI.head,duration:2.4,ease:'sine.inOut',yoyo:true,repeat:-1},'>');
-    return tl;},
-  limping(){const tl=G.timeline();
-    tl.to('#dog',{y:0,rotation:-3,scaleY:1,svgOrigin:FEET,duration:.4},0)
-      .to('#legFrontNear',{rotation:-44,svgOrigin:ORI.legFrontNear,duration:.4},0)
-      .to(['#legFrontFar','#legBackFar'],{rotation:0,duration:.4},0)
-      .to('#head',{rotation:7,svgOrigin:ORI.head,duration:.4},0).to('#tail',{rotation:10,svgOrigin:ORI.tail,duration:.4},0);
-    tl.to('#dog',{y:-6,duration:.45,ease:'power1.out',yoyo:true,repeat:-1},'>')
-      .to('#legBackNear',{rotation:16,svgOrigin:ORI.legBackNear,duration:.45,ease:'power1.inOut',yoyo:true,repeat:-1},'<')
-      .to('#legFrontNear',{rotation:-54,svgOrigin:ORI.legFrontNear,duration:.9,ease:'sine.inOut',yoyo:true,repeat:-1},'<')
-      .to('#head',{rotation:15,svgOrigin:ORI.head,duration:.45,ease:'power1.inOut',yoyo:true,repeat:-1},'<');
-    return tl;},
-  lethargic(){const tl=G.timeline();
-    tl.to('#dog',{y:20,rotation:0,scaleY:.9,svgOrigin:FEET,duration:1.0,ease:'power2.out'},0)
-      .to('#head',{rotation:27,svgOrigin:ORI.head,duration:1.1,ease:'power2.out'},0)
-      .to(LEGS,{rotation:0,duration:.6},0).to('#tail',{rotation:20,svgOrigin:ORI.tail,duration:1.0},0);
-    tl.to('#dog',{y:23,duration:3.4,ease:'sine.inOut',yoyo:true,repeat:-1},'>')
-      .to('#head',{rotation:31,svgOrigin:ORI.head,duration:3.4,ease:'sine.inOut',yoyo:true,repeat:-1},'<');
-    return tl;},
-  drinking(){const tl=G.timeline();
-    tl.to('#dog',{y:2,rotation:0,scaleY:1,svgOrigin:FEET,duration:.4},0)
-      .to(LEGS,{rotation:0,duration:.4},0).to('#tail',{rotation:-12,svgOrigin:ORI.tail,duration:.4},0)
-      .to('#head',{rotation:34,svgOrigin:ORI.head,duration:.5,ease:'power2.in'},0);
-    tl.to('#head',{rotation:41,svgOrigin:ORI.head,duration:.5,ease:'sine.inOut',yoyo:true,repeat:-1},'>')
-      .set('#tongue',{opacity:1},'<')
-      .fromTo('#tongue',{scaleY:.4,svgOrigin:'212 90'},{scaleY:1,svgOrigin:'212 90',duration:.25,ease:'sine.inOut',yoyo:true,repeat:-1},'<')
-      .fromTo('#ripple',{scale:.6,opacity:.8,svgOrigin:'196 147'},{scale:1.4,opacity:0,svgOrigin:'196 147',duration:1.1,ease:'sine.out',repeat:-1},'<')
-      .to('#tail',{rotation:-26,svgOrigin:ORI.tail,duration:.4,ease:'sine.inOut',yoyo:true,repeat:-1},'<');
-    return tl;},
-};
-let idleStarted=false;
-function startIdle(){
-  G.to('#body',{scaleY:1.045,svgOrigin:'116 122',duration:2.3,ease:'sine.inOut',yoyo:true,repeat:-1});
-  const blink=()=>G.timeline({onComplete:blink,delay:G.utils.random(2.2,5.6)})
-    .to('#eye',{scaleY:.08,svgOrigin:'187 60',duration:.08,ease:'power2.in'})
-    .to('#eye',{scaleY:1,svgOrigin:'187 60',duration:.13,ease:'power2.out'});
-  blink();
-}
-const MOOD = {resting:['💤','var(--good)'],pacing:['🐾','var(--warn)'],
-  not_touching_food:['🍖','var(--warn)'],limping:['🩹','var(--bad)'],
-  lethargic:['😴','var(--bad)'],drinking:['💧','var(--accent)'],off_screen:['📷','var(--dim)']};
-let curBeh=null, curTl=null;
-function setBehaviour(label){
-  if(!G || !document.getElementById('dogsvg')) return;
-  if(!MOOD[label]) label='resting';
-  if(label===curBeh) return;
-  curBeh=label;
-  const off = label==='off_screen';
-  document.getElementById('behLabel').textContent = off?'offline':label.replace(/_/g,' ');
-  document.getElementById('moodDot').style.background = MOOD[label][1];
-  document.getElementById('thoughtEmoji').textContent = MOOD[label][0];
-  document.getElementById('thought').classList.add('on');
-  G.to('#offline',{opacity: off?1:0, duration:.35});
-  G.to('#dog',{opacity: off?0:1, duration:.35});
-  G.to('#foodBowl',{opacity: label==='not_touching_food'?1:0, duration:.35});
-  G.to('#waterBowl',{opacity: label==='drinking'?1:0, duration:.35});
-  G.to('#ear',{rotation: label==='lethargic'?12:0, svgOrigin:ORI.ear, duration:.5});
-  if(label!=='drinking') G.set('#tongue',{opacity:0});
-  if(curTl){ curTl.kill(); curTl=null; }
-  if(off) return;
-  if(!idleStarted && !REDUCED){ startIdle(); idleStarted=true; }
-  curTl = BEHAVIOURS[label]();
-  if(REDUCED && curTl){ curTl.progress(0.5).pause(); }  // freeze an expressive static pose
-}
-if(G){ setBehaviour('resting'); }
 
 refreshRuns();
 </script></body></html>
