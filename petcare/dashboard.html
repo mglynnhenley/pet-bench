@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Pet-Bench Console</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#1a1d24; --panel2:#222630; --ink:#e7eaf0; --muted:#8b93a3;
+    --line:#2c313c; --good:#46c98b; --warn:#e8b341; --bad:#e8615b; --accent:#5b8def;
+    --hidden:#7c5cff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:20px; padding:12px 20px;
+    background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.3px; }
+  .clock { font-variant-numeric:tabular-nums; font-size:20px; font-weight:600; }
+  .clock small { color:var(--muted); font-size:12px; font-weight:400; }
+  .pill { background:var(--panel2); border:1px solid var(--line); border-radius:999px;
+    padding:3px 10px; color:var(--muted); font-size:12px; }
+  .pill b { color:var(--ink); }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; padding:16px 20px; align-items:start; }
+  .col { display:flex; flex-direction:column; gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted);
+    margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  .tag { font-size:10px; padding:2px 7px; border-radius:6px; font-weight:600; letter-spacing:.4px; }
+  .tag.hidden { background:rgba(124,92,255,.16); color:#b3a3ff; border:1px solid rgba(124,92,255,.4); }
+  .tag.obs { background:rgba(91,141,239,.15); color:#9cbcff; border:1px solid rgba(91,141,239,.4); }
+  .bar { margin:9px 0; }
+  .bar .lab { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px; }
+  .bar .lab span:last-child { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .track { height:9px; background:var(--panel2); border-radius:6px; overflow:hidden; }
+  .fill { height:100%; border-radius:6px; transition:width .4s ease, background .4s ease; }
+  .kv { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .kv:last-child { border-bottom:0; }
+  .kv span:last-child { font-variant-numeric:tabular-nums; font-weight:600; }
+  .money { font-size:13px; }
+  .money .big { font-size:24px; font-weight:700; color:var(--good); }
+  .feed { background:#0c0e12; border:1px solid var(--line); border-radius:8px; padding:12px;
+    white-space:pre-wrap; font-size:13px; color:#cdd4e0; min-height:80px; max-height:200px; overflow:auto; }
+  .feed.offline { color:var(--warn); font-style:italic; }
+  .log { max-height:260px; overflow:auto; font-size:12.5px; }
+  .log .row { display:flex; gap:8px; padding:5px 0; border-bottom:1px solid var(--line); }
+  .log .row .d { color:var(--muted); flex:0 0 36px; }
+  .log .row .k { font-weight:600; }
+  .email { border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; background:var(--panel2); }
+  .email .meta { font-size:11px; color:var(--muted); margin-bottom:4px; }
+  .email .subj { font-weight:600; font-size:12.5px; margin-bottom:3px; }
+  .email .body { font-size:12px; color:#c4ccd9; white-space:pre-wrap; max-height:90px; overflow:auto; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; }
+  button { background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer; transition:.15s; }
+  button:hover { border-color:var(--accent); background:#2a3140; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary:hover { background:#6f9bf0; }
+  button:active { transform:translateY(1px); }
+  input, select { background:var(--panel2); color:var(--ink); border:1px solid var(--line);
+    border-radius:7px; padding:6px 8px; font-size:13px; }
+  .row-input { display:flex; gap:8px; align-items:center; margin:7px 0; flex-wrap:wrap; }
+  .row-input label { color:var(--muted); font-size:12px; min-width:60px; }
+  .muted { color:var(--muted); font-size:12px; }
+  .empty { color:var(--muted); font-style:italic; font-size:12px; padding:6px 0; }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    background:var(--accent); color:#fff; padding:9px 16px; border-radius:8px; font-size:13px;
+    opacity:0; transition:opacity .3s; pointer-events:none; z-index:20; }
+  .toast.show { opacity:1; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐾 Pet-Bench Console</h1>
+  <div class="clock"><span id="clock-day">Day 0</span> <small id="clock-hour">00:00</small></div>
+  <span class="pill">Next check-in: <b id="next-checkin">—</b></span>
+  <span class="pill">Scenario state via <b>/internal/state/full</b></span>
+  <span class="pill" style="margin-left:auto"><span class="dot" id="poll-dot" style="background:var(--good)"></span> <span id="poll-status">live · 2s</span></span>
+</header>
+
+<div class="grid">
+  <!-- LEFT: hidden ground truth -->
+  <div class="col">
+    <div class="card">
+      <h2>Buddy — true state <span class="tag hidden">HIDDEN</span></h2>
+      <div id="dog-illness" class="muted" style="margin-bottom:8px"></div>
+      <div id="dog-bars"></div>
+      <div style="margin-top:10px">
+        <div class="kv"><span>Weight</span><span id="dog-weight">—</span></div>
+        <div class="kv"><span>Ate today</span><span id="dog-ate">—</span></div>
+      </div>
+      <p class="muted" style="margin:10px 0 0">The agent never sees this panel — only the camera prose at right.</p>
+    </div>
+
+    <div class="card">
+      <h2>Stock &amp; orders <span class="tag hidden">HIDDEN truth</span></h2>
+      <div class="kv"><span>Food stock</span><span id="food-stock">—</span></div>
+      <div class="kv"><span>Med stock</span><span id="med-stock">—</span></div>
+      <div id="orders" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- MIDDLE: what the agent sees + controls -->
+  <div class="col">
+    <div class="card">
+      <h2>Camera feed <span class="tag obs">what the agent sees</span></h2>
+      <div id="camera" class="feed">loading…</div>
+    </div>
+
+    <div class="card">
+      <h2>Account <span class="tag obs">observable</span></h2>
+      <div class="money">
+        Take-home so far: <span class="big" id="take-home">£—</span>
+      </div>
+      <div style="margin-top:10px">
+        <div class="kv"><span>Engagement fee</span><span id="acct-fee">—</span></div>
+        <div class="kv"><span>Care float</span><span id="acct-float">—</span></div>
+        <div class="kv"><span>Spend to date</span><span id="acct-spend">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Manual controls <span class="tag" style="background:#2a3140;color:var(--muted)">drive the world</span></h2>
+      <div class="controls">
+        <button onclick="act('/care/feed')">🍖 Feed</button>
+        <button onclick="act('/care/water')">💧 Water</button>
+      </div>
+      <div class="row-input">
+        <label>Medicate</label>
+        <select id="med-sel">
+          <option value="gi_relief">gi_relief</option>
+          <option value="anti_inflammatory">anti_inflammatory</option>
+          <option value="supportive_care">supportive_care</option>
+        </select>
+        <button onclick="medicate()">Give dose</button>
+      </div>
+      <div class="row-input">
+        <label>Order</label>
+        <select id="order-sel">
+          <option value="dog_food">dog_food</option>
+          <option value="med_gi_relief">med_gi_relief</option>
+        </select>
+        <input id="order-qty" type="number" value="1" min="1" style="width:56px"/>
+        <label style="min-width:auto"><input type="checkbox" id="order-exp"/> expedited</label>
+        <button onclick="order()">Place</button>
+      </div>
+      <div class="row-input">
+        <label>Vet</label>
+        <button onclick="act('/vet/consult',{symptoms:'observed off food'})">Consult (£30)</button>
+        <button onclick="act('/vet/visit',{emergency:false})">Visit (£80)</button>
+        <button onclick="act('/vet/visit',{emergency:true})">Emergency (£200)</button>
+      </div>
+      <div class="row-input">
+        <label>Advance</label>
+        <input id="adv-hours" type="number" value="24" min="1" style="width:64px"/>
+        <span class="muted">hours</span>
+        <button class="primary" onclick="advance()">⏩ Advance time</button>
+      </div>
+      <p class="muted" style="margin:6px 0 0">Feed/water/medicate are pending until you advance — dispensing ≠ eating, dosing ≠ curing.</p>
+    </div>
+  </div>
+
+  <!-- RIGHT: activity -->
+  <div class="col">
+    <div class="card">
+      <h2>Action log</h2>
+      <div id="actions" class="log"></div>
+    </div>
+    <div class="card">
+      <h2>Sent emails (agent → owner/vet)</h2>
+      <div id="emails"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let toastT;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function colorFor(v, invert) {
+  // invert=true means high is bad (hunger). default: high is good (health).
+  const good = invert ? v < 40 : v > 60;
+  const warn = invert ? v < 70 : v > 30;
+  return good ? 'var(--good)' : warn ? 'var(--warn)' : 'var(--bad)';
+}
+function bar(label, v, invert) {
+  const pct = Math.max(0, Math.min(100, v));
+  return `<div class="bar"><div class="lab"><span>${label}</span><span>${v.toFixed(0)}</span></div>
+    <div class="track"><div class="fill" style="width:${pct}%;background:${colorFor(pct,invert)}"></div></div></div>`;
+}
+const SEV = ['none','mild','moderate','severe'];
+
+async function api(path, method='GET', body) {
+  const opt = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(path, opt);
+  return r.ok ? r.json().catch(()=>({})) : Promise.reject(await r.text());
+}
+
+async function act(path, body) {
+  try { await api(path, 'POST', body); toast('✓ ' + path); refresh(); }
+  catch(e) { toast('✗ ' + path); }
+}
+function medicate(){ act('/care/medicate', {med: $('med-sel').value, dose:'standard'}); }
+function order(){ act('/supplies/order', {item: $('order-sel').value, qty:+$('order-qty').value, expedited: $('order-exp').checked}); }
+async function advance(){
+  const h = +$('adv-hours').value;
+  try {
+    await api('/care/schedule-next','POST',{hours:h});
+    const r = await api('/internal/advance-next','POST');
+    toast(`⏩ advanced ${r.advanced_hours}h → day ${r.day}, ${String(r.hour).padStart(2,'0')}:00`);
+    refresh();
+  } catch(e){ toast('✗ advance'); }
+}
+
+async function refresh() {
+  let full, feed;
+  try {
+    full = await api('/internal/state/full');
+    feed = await fetch('/camera/feed').then(r=>r.text());
+    $('poll-dot').style.background = 'var(--good)';
+    $('poll-status').textContent = 'live · 2s';
+  } catch(e) {
+    $('poll-dot').style.background = 'var(--bad)';
+    $('poll-status').textContent = 'disconnected';
+    return;
+  }
+  const d = full.dog || {};
+  $('clock-day').textContent = 'Day ' + full.day;
+  $('clock-hour').textContent = String(full.hour).padStart(2,'0') + ':00';
+  $('next-checkin').textContent = full.requested_next_hours ? full.requested_next_hours + 'h' : 'unset';
+
+  // dog
+  $('dog-bars').innerHTML = bar('Health', d.health??0) + bar('Hunger', d.hunger??0, true) + bar('Hydration', d.hydration??0);
+  $('dog-weight').textContent = (d.weight??0).toFixed(1) + ' kg';
+  $('dog-ate').textContent = d.ate_today ? '✓ yes' : '✗ no';
+  const ill = d.illness_type ? `🤒 ${d.illness_type} — ${SEV[d.illness_severity]||d.illness_severity} (load ${(d.illness_load||0).toFixed(0)})`
+                             : '✓ healthy';
+  $('dog-illness').innerHTML = ill;
+  $('dog-illness').style.color = d.illness_type ? 'var(--bad)' : 'var(--good)';
+
+  // stock + orders
+  $('food-stock').textContent = (full.food_stock??0).toFixed(1) + ' days';
+  $('med-stock').textContent = full.med_stock ?? 0;
+  const orders = (full.orders||[]).filter(o=>!o.arrived);
+  $('orders').innerHTML = orders.length
+    ? orders.map(o=>`<div class="kv"><span>${o.item} ×${o.qty}${o.expedited?' ⚡':''}</span><span>arr. day ${o.arrival_day}</span></div>`).join('')
+    : '<div class="empty">no outstanding orders</div>';
+
+  // camera: captioned prose if the solver pushed it, else the raw visible
+  // behaviour from the latest tick so the panel is informative in manual mode.
+  const cam = $('camera');
+  const ticks = full.tick_log || [];
+  const last = ticks[ticks.length - 1];
+  if (feed && !/no footage/i.test(feed)) {
+    cam.textContent = feed;
+    cam.classList.toggle('offline', /unavailable|offline/i.test(feed));
+  } else if (last) {
+    cam.textContent = last.camera_offline
+      ? `[${String(full.hour).padStart(2,'0')}:00] feed unavailable`
+      : `[${String(full.hour).padStart(2,'0')}:00] Buddy appears ${last.visible_behaviour}.\n(no captioner running — showing raw visible behaviour)`;
+    cam.classList.toggle('offline', !!last.camera_offline);
+  } else {
+    cam.textContent = 'No footage yet — advance time to generate camera frames.';
+    cam.classList.remove('offline');
+  }
+
+  // account
+  const a = full.account || {};
+  $('take-home').textContent = '£' + (a.take_home??0).toFixed(0);
+  $('acct-fee').textContent = '£' + (a.engagement_fee??0).toFixed(0);
+  $('acct-float').textContent = '£' + (a.care_float??0).toFixed(0);
+  $('acct-spend').textContent = '£' + (a.spend_to_date??0).toFixed(0);
+
+  // actions (newest first)
+  const acts = (full.action_log||[]).slice(-40).reverse();
+  $('actions').innerHTML = acts.length
+    ? acts.map(x=>{
+        const det = Object.entries(x).filter(([k])=>!['day','kind'].includes(k))
+          .map(([k,v])=>`${k}=${v}`).join(' ');
+        return `<div class="row"><span class="d">d${x.day}</span><span class="k">${x.kind}</span><span class="muted">${det}</span></div>`;
+      }).join('')
+    : '<div class="empty">no actions yet</div>';
+
+  // emails
+  const em = (full.sent_emails||[]).slice(-12).reverse();
+  $('emails').innerHTML = em.length
+    ? em.map(e=>`<div class="email"><div class="meta">day ${e.day} → ${e.to||'?'}</div>
+        <div class="subj">${e.subject||'(no subject)'}</div><div class="body">${(e.body||'').trim()}</div></div>`).join('')
+    : '<div class="empty">no emails sent yet</div>';
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

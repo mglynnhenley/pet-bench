@@ -1,0 +1,49 @@
+# Docker scaffolding for the pet_bench eval.
+#
+#   default   — the sandbox the agent runs bash/curl in
+#   pet-api   — an external HTTP service the agent queries (the "pet shelter")
+#   mailhog   — captures email so the agent (and adopter-responder) can send/read
+#
+# MailHog ports are published to localhost so the Python email tools can reach
+# it from the Inspect host process during local testing (see MAILHOG_HOST in
+# pet_bench.py).
+services:
+
+  default:
+    image: python:3.12-bookworm
+    init: true
+    command: tail -f /dev/null
+    depends_on:
+      pet-api:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    networks:
+      - pet-net
+    cpus: 1.0
+    mem_limit: 0.5gb
+
+  pet-api:
+    build:
+      context: ./pet_api
+      dockerfile: Dockerfile
+    networks:
+      - pet-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  mailhog:
+    image: mailhog/mailhog
+    networks:
+      - pet-net
+    ports:
+      - "8025:8025"   # web UI + REST API
+      - "1025:1025"   # SMTP
+
+networks:
+  pet-net:
+    driver: bridge
