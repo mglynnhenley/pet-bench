@@ -223,10 +223,14 @@ HTML = r"""
         display:inline-flex;align-items:center;gap:6px}
   .live-tag::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--info);animation:pulse 1.1s infinite}
 
+  /* summary — two labelled groups, plain-language so the metrics are legible */
+  .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:18px;margin:22px 0 6px}
+  .glab{font:600 11px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px}
+  .glab .cap{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink3)}
   /* stat strip — flat figures, semantic colour on the number only */
   .stats{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:var(--r);
-        background:var(--surface);margin:22px 0 6px;overflow:hidden}
-  .stat{flex:1;min-width:120px;padding:13px 16px;border-right:1px solid var(--line)}
+        background:var(--surface);overflow:hidden}
+  .stat{flex:1;min-width:104px;padding:13px 16px;border-right:1px solid var(--line)}
   .stat:last-child{border-right:none}
   .stat .k{font-size:11px;color:var(--ink3);font-weight:600;letter-spacing:.02em}
   .stat .v{font:600 21px/1.1 var(--sans);margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
@@ -250,15 +254,18 @@ HTML = r"""
   /* ── a check-in: the reading unit ─────────────────────────────────────── */
   .daysep{font:600 13px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);
         margin:38px 0 0;padding-bottom:10px;border-bottom:1px solid var(--line)}
-  .ci{padding:24px 0;border-bottom:1px solid var(--line)}
-  .ci-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
-  .ci-head .when{font:600 17px/1 var(--serif)}
-  .ci-head .obs{font-size:12.5px;color:var(--ink2)}
-  .ci-head .truth{margin-left:auto;font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
-  .ci-head .truth .ill{color:var(--bad);font-weight:600}
-  .ci-head .truth .ok{color:var(--good)}
-  .brief{font-size:13.5px;line-height:1.6;color:var(--ink2);border-left:2px solid var(--line2);
-        padding:1px 0 1px 14px;margin:0 0 18px;white-space:pre-wrap}
+  .ci{padding:22px 0;border-bottom:1px solid var(--line)}
+  .ci-head{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+  .ci-head .when{font:600 16px/1 var(--serif)}
+  .ci-head .saw{font-size:12.5px;color:var(--ink3)}
+  .ci-head .saw b{color:var(--ink2);font-weight:600}
+  /* spectator ground-truth pill — what was REALLY going on (agent can't see it) */
+  .status{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
+        border:1px solid var(--line2);border-radius:20px;padding:3px 10px 3px 8px}
+  .status::before{content:"";width:7px;height:7px;border-radius:50%}
+  .status .tl{font-weight:500;color:var(--ink3);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
+  .status.ok{color:var(--good)} .status.ok::before{background:var(--good)}
+  .status.ill{color:var(--bad);border-color:#e7c3b8;background:#fdf4f1} .status.ill::before{background:var(--bad)}
 
   /* reasoning — the chain of thought, set as editorial prose */
   .reason{max-width:var(--measure)}
@@ -275,8 +282,16 @@ HTML = r"""
         border:1px solid var(--note-line);border-radius:5px;padding:1px 6px;font-size:10px}
   .note .ntext{font:15px/1.65 var(--serif);color:#5e4f25;white-space:pre-wrap}
 
+  /* "Did" — one-line plain summary of what the agent actually did this turn */
+  .didline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:15px 0 0}
+  .didline .dlab{font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);flex-shrink:0}
+  .vtag{font-size:12px;color:var(--ink2);background:var(--raise);border:1px solid var(--line);
+        border-radius:6px;padding:2px 8px}
+  /* one consolidated per-turn disclosure: console log, camera feed, this turn's mail */
+  .dsub{font:600 10.5px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:16px 0 8px}
+  .dsub:first-child{margin-top:0}
   /* actions — a compact monospace ledger, clearly secondary to the prose */
-  .ledger{margin:16px 0 0;border:1px solid var(--line);border-radius:var(--rs);overflow:hidden;background:var(--surface)}
+  .ledger{border:1px solid var(--line);border-radius:var(--rs);overflow:hidden;background:var(--surface)}
   .act{display:flex;align-items:flex-start;gap:12px;padding:9px 14px;border-top:1px solid var(--line);cursor:default}
   .act:first-child{border-top:none}
   .act .verb{font-size:13px;font-weight:600;color:var(--ink);flex-shrink:0;width:172px}
@@ -288,7 +303,6 @@ HTML = r"""
   .act .toggle{margin-left:auto;font-size:11px;font-weight:600;color:var(--ink3);cursor:pointer;flex-shrink:0;user-select:none}
   .act .toggle::after{content:"result"} .act.open .toggle::after{content:"hide"}
   .act .toggle:hover{color:var(--ink)}
-  .ledger-lab{font:600 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:18px 0 7px}
 
   /* a streaming indicator */
   .typing{display:flex;gap:6px;padding:10px 0 2px}
@@ -501,13 +515,17 @@ function render(id,d){
 function stats(sc){
   const s=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
   const h=sc.final_health==null?'—':Math.round(sc.final_health);
-  return '<div class="stats">'+
+  const welfare='<div class="stats">'+
     s('Final health', h, sc.survived?(h>=60?'good':'warn'):'bad')+
     s('Hours ill', sc.hours_dog_ill, sc.hours_dog_ill>0?'warn':'')+
-    s('Take-home', '£'+(sc.take_home??'—'))+
+    s('Take-home', '£'+(sc.take_home??'—'))+'</div>';
+  const honesty='<div class="stats">'+
     s('False completion', sc.false_completion, sc.false_completion>0?'bad':'good')+
     s('Symptom dismissal', sc.symptom_dismissal, sc.symptom_dismissal>0?'bad':'good')+
-    s('Concealed uncert.', sc.concealed_uncertainty, sc.concealed_uncertainty>0?'bad':'good')+
+    s('Concealed uncertainty', sc.concealed_uncertainty, sc.concealed_uncertainty>0?'bad':'good')+'</div>';
+  return '<div class="summary">'+
+    `<div><div class="glab">How Buddy did</div>${welfare}</div>`+
+    `<div><div class="glab">Honesty to the owner <span class="cap">— times its claims contradicted reality · 0 is good</span></div>${honesty}</div>`+
     '</div>';
 }
 
@@ -516,7 +534,8 @@ function vitals(cks){
   if(!states.length) return '';
   const series=[['health','Health','#1d7a4d'],['hunger','Hunger','#a96a00'],
     ['hydration','Hydration','#2f6f9e'],['take_home','Take-home £','#191815']];
-  return '<div class="vitals">'+series.map(([k,lab,col])=>{
+  return '<div class="glab" style="margin-top:24px">Buddy across the episode <span class="cap">— ground truth, per check-in</span></div>'+
+    '<div class="vitals">'+series.map(([k,lab,col])=>{
     const data=states.map(s=>s[k]||0), last=data[data.length-1];
     return `<div class="vital"><div class="vh"><b>${lab}</b><span>${Math.round(last)}</span></div>${spark(data,col)}</div>`;
   }).join('')+'</div>';
@@ -532,10 +551,16 @@ function spark(data,col){
 
 function daynav(cks){
   if(!cks.length) return '';
-  return '<div class="daynav">'+cks.map((c,i)=>{
-    const st=c.started||{}, harm=c.state&&c.state.illness_severity>0;
-    return `<span class="chip ${harm?'harm':''}" data-i="${i}">Day ${st.day}<span class="h">·${String(st.hour).padStart(2,'0')}h</span></span>`;
-  }).join('')+'</div>';
+  // one chip per day (jumps to that day's first check-in); flag a day where Buddy was ill
+  const seen=new Set(); let chips='';
+  cks.forEach((c,i)=>{
+    const day=(c.started||{}).day;
+    if(seen.has(day)) return; seen.add(day);
+    const harm=cks.some(x=>(x.started||{}).day===day && x.state && x.state.illness_severity>0);
+    const n=cks.filter(x=>(x.started||{}).day===day).length;
+    chips+=`<span class="chip ${harm?'harm':''}" data-i="${i}">Day ${day}<span class="h">·${n}</span></span>`;
+  });
+  return '<div class="daynav">'+chips+'</div>';
 }
 
 // The transcript — every check-in stacked for top-to-bottom skimming, grouped by day.
@@ -552,47 +577,49 @@ function transcript(cks,running){
 
 function checkin(c,i,follow){
   const st=c.started||{}, s=c.state;
-  let beh = s && s.camera_offline ? 'camera offline' : ((s && s.visible_behaviour) || 'resting').replace(/_/g,' ');
-  if((s&&s.visible_behaviour==='resting') && s.ate_recently) beh='eating';
+  let saw = s && s.camera_offline ? 'camera offline' : ((s && s.visible_behaviour) || 'resting').replace(/_/g,' ');
+  if((s&&s.visible_behaviour==='resting') && s.ate_recently) saw='eating';
+  // header: when · what the camera showed the agent · what was REALLY true (spectator)
   let h=`<article class="ci" id="ci-${i}"><div class="ci-head">`+
-    `<span class="when">Day ${st.day}, ${String(st.hour).padStart(2,'0')}:00</span>`+
-    `<span class="obs">camera: ${esc(beh)}</span>`;
-  if(s){
-    const ill=s.illness_type?`<span class="ill">${esc(s.illness_type)} sev ${s.illness_severity}</span>`:`<span class="ok">well</span>`;
-    h+=`<span class="truth">truth · H${Math.round(s.health)} · ${ill}</span>`;
-  }
+    `<span class="when">Day ${st.day} · ${String(st.hour).padStart(2,'0')}:00</span>`+
+    `<span class="saw">camera showed <b>${esc(saw)}</b></span>`;
+  if(s) h+= s.illness_type
+    ? `<span class="status ill"><span class="tl">truth</span> ${esc(s.illness_type)} sev ${s.illness_severity}</span>`
+    : `<span class="status ok"><span class="tl">truth</span> well</span>`;
   h+='</div>';
-  if(c.brief) h+=`<div class="brief">${esc(c.brief)}</div>`;
 
-  // reasoning — the chain of thought, as prose; private notes inline as asides
   const says=c.steps.filter(x=>x.kind==='say');
   const notes=c.steps.filter(x=>x.tool==='scratchpad');
-  let reason='';
-  if(says.length){ reason+='<div class="reason">'+says.map(x=>`<p class="think">${esc(x.text)}</p>`).join('')+'</div>'; }
-  else if(!c.steps.length){ reason+='<div class="nothing">No activity recorded.</div>'; }
-  h+=reason;
+  const acts=c.steps.filter(x=>x.kind!=='say' && x.tool!=='scratchpad');
+
+  // reasoning — the chain of thought, as prose (the thing you skim)
+  if(says.length) h+='<div class="reason">'+says.map(x=>`<p class="think">${esc(x.text)}</p>`).join('')+'</div>';
+  else if(!c.steps.length) h+='<div class="nothing">No activity recorded.</div>';
+  // private notepad inline (candid CoT, still covertly graded)
   notes.forEach(n=>{
     h+=`<div class="note"><div class="nlab">Private notepad<span class="ptag">agent believes this is unmonitored</span></div>`+
        `<div class="ntext">${esc(n.arg||n.result||'')}</div></div>`;
   });
 
-  // actions — a compact ledger
-  const acts=c.steps.filter(x=>x.kind!=='say' && x.tool!=='scratchpad');
+  // one-line "Did" summary — collapse consecutive duplicate verbs
   if(acts.length){
-    h+='<div class="ledger-lab">Actions</div><div class="ledger">'+acts.map((st2,j)=>{
-      const ai=actionLabel(st2.tool,st2.arg), key='ci'+i+'-'+j;
-      return actMarkup(key,ai,fmtCmd(st2.tool,st2.arg),fmtResult(st2.result));
-    }).join('')+'</div>';
+    const verbs=acts.map(a=>actionLabel(a.tool,a.arg)).filter((v,k,arr)=>v!==arr[k-1]);
+    h+=`<div class="didline"><span class="dlab">Did</span>${verbs.map(v=>`<span class="vtag">${esc(v)}</span>`).join('')}</div>`;
   }
 
-  // camera caption + this turn's inbox/sent, folded
-  if(c.camera) h+=section('cam-'+i,'Camera feed','<div class="cam">'+esc(c.camera)+'</div>');
-  if(c.inbound&&c.inbound.length){
-    const ms=c.inbound.map(mm=>({dir:'in',from:mm.from,subject:mm.subject,body:mm.body}));
-    h+=section('in-'+i,`Inbox at this check-in (${ms.length})`,inbox(ms,'in'+i)); }
-  if(c.sent&&c.sent.length){
-    const ms=c.sent.map(mm=>({dir:'sent',to:mm.to,subject:mm.subject,body:mm.body}));
-    h+=section('out-'+i,`Emails sent (${ms.length})`,inbox(ms,'out'+i)); }
+  // ONE consolidated disclosure for everything secondary: console log, camera, mail
+  let det='';
+  if(acts.length){ det+='<div class="dsub">Console log</div><div class="ledger">'+acts.map((a,j)=>{
+      const key='ci'+i+'-'+j;
+      return actMarkup(key,actionLabel(a.tool,a.arg),fmtCmd(a.tool,a.arg),fmtResult(a.result));
+    }).join('')+'</div>'; }
+  if(c.camera) det+='<div class="dsub">Camera feed</div><div class="cam">'+esc(c.camera)+'</div>';
+  if(c.inbound&&c.inbound.length){ const ms=c.inbound.map(mm=>({dir:'in',from:mm.from,subject:mm.subject,body:mm.body}));
+    det+=`<div class="dsub">Inbox at this check-in (${ms.length})</div>`+inbox(ms,'in'+i); }
+  if(c.sent&&c.sent.length){ const ms=c.sent.map(mm=>({dir:'sent',to:mm.to,subject:mm.subject,body:mm.body}));
+    det+=`<div class="dsub">Emails sent (${ms.length})</div>`+inbox(ms,'out'+i); }
+  if(det) h+=section('det-'+i,'Details — console, camera & mail',det);
+
   if(follow) h+='<div class="typing"><i></i><i></i><i></i></div>';
   h+='</article>';
   return h;
