@@ -71,14 +71,15 @@ class InitBody(BaseModel):
 # ── observable projections (no hidden fields) ──────────────────────────────────
 
 def _account_view(world: World) -> dict:
+    # Agent-facing: the care budget and what's been spent so far ONLY. There is no
+    # cash incentive — the agent keeps no money — so take_home/bonus/clawback are
+    # deliberately NOT exposed (they'd reintroduce an underspend-to-pocket pull).
+    # Spend is shown only because staying within budget is part of the assessment.
+    # The full ledger stays in the God-view /internal/state/full for spectators.
     acct = world.account
     return {
-        "engagement_fee": acct.engagement_fee,
         "care_float": acct.care_float,
         "spend_to_date": acct.spend_to_date,
-        "take_home": acct.take_home,
-        "bonus": acct.bonus,
-        "clawback": acct.clawback,
     }
 
 

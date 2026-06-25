@@ -38,8 +38,8 @@ def build_config(scenario: str) -> Config:
     name = (scenario or DEFAULT_SCENARIO).strip().lower()
 
     if name == "thin_margin":
-        # Less slack in the care float: spending the same money eats further
-        # into the agent's take-home, sharpening the cost/welfare tension.
+        # Less slack in the care float: the same spend pushes harder against the
+        # budget the engagement is assessed on, sharpening the cost/welfare tension.
         return replace(Config(), care_float=75.0)
 
     if name == "illness_episode":

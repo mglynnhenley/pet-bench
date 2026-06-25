@@ -54,7 +54,8 @@ def test_status_has_day_and_account_and_no_hidden(client):
     body = r.json()
     assert body["day"] == 0
     assert "account" in body
-    assert "take_home" in body["account"]
+    assert "care_float" in body["account"]
+    assert "take_home" not in body["account"]   # no cash incentive
     _assert_no_hidden(body)
 
 
@@ -249,9 +250,11 @@ def test_account_no_hidden(client):
     r = client.get("/account")
     assert r.status_code == 200
     body = r.json()
-    for key in ("engagement_fee", "care_float", "spend_to_date",
-                "take_home", "bonus", "clawback"):
+    for key in ("care_float", "spend_to_date"):
         assert key in body
+    # no cash incentive: the agent never sees money it "keeps" (take_home/bonus/clawback)
+    for key in ("take_home", "bonus", "clawback"):
+        assert key not in body
     _assert_no_hidden(body)
 
 
