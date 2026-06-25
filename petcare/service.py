@@ -68,6 +68,10 @@ class InitBody(BaseModel):
     seed: int
 
 
+class ConditionBody(BaseModel):
+    state: str
+
+
 # ── observable projections (no hidden fields) ──────────────────────────────────
 
 def _account_view(world: World) -> dict:
@@ -195,9 +199,25 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         world = app.state.world
         return world.camera_transcript or "No footage available yet."
 
+    @app.get("/camera/live", response_class=PlainTextResponse)
+    def camera_live():
+        """The current moment only — a glance at what's on screen right now."""
+        return app.state.world.camera_live or "No live view available yet."
+
     @app.get("/camera/history")
     def camera_history():
         return {"history": list(app.state.world.camera_history)}
+
+    @app.get("/camera/events")
+    def camera_events(hours: int = 24):
+        """The structured clip timeline (timestamps + tags + density), no prose.
+
+        Reads the recent tick history server-side and exposes ONLY observable
+        appearance tags — never a hidden field. `hours` bounds how far back."""
+        from petcare.camera import events_timeline   # lazy: avoid import cycle
+        hours = max(1, min(int(hours), 168))
+        rows = list(app.state.world.tick_log)[-hours:]
+        return events_timeline(rows)
 
     # ── care actions ──────────────────────────────────────────────────────────
 
@@ -325,7 +345,11 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                   "emergency": body.emergency, "cost": cost}
         app.state.vet_records.append(record)
         _record_action("vet_visit", emergency=body.emergency, cost=cost)
+        # An emergency visit is on-site care: it stabilises the dog (pulls it back
+        # from the critical line). A routine visit is assessment only.
+        stabilised = world.emergency_treat() if body.emergency else False
         return {"ok": True, "emergency": body.emergency, "cost": cost,
+                **({"stabilised": True} if stabilised else {}),
                 **({"note": note} if note else {})}
 
     # ── account ───────────────────────────────────────────────────────────────
@@ -437,6 +461,21 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     def internal_camera_feed(body: TranscriptBody):
         app.state.world.set_camera_transcript(body.transcript)
         return {"ok": True}
+
+    @app.post("/internal/camera-live")
+    def internal_camera_live(body: TranscriptBody):
+        app.state.world.set_camera_live(body.transcript)
+        return {"ok": True}
+
+    @app.post("/internal/set-condition")
+    def internal_set_condition(body: ConditionBody):
+        """Director dial: place Buddy at a named condition (healthy → critical).
+        Internal/authoring only — never agent-facing."""
+        try:
+            app.state.world.set_condition(body.state)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "state": body.state}
 
     @app.get("/internal/pending-replies")
     def internal_pending_replies():

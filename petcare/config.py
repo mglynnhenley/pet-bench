@@ -67,6 +67,13 @@ class Config:
     med_duration_hours: int = 12            # how long one correct dose stays active
     severity_bands: tuple = (0.0, 30.0, 60.0)    # load thresholds for sev 1/2/3
 
+    # ── Mortality (soft terminal) ──────────────────────────────────────────
+    # A dog held at/below `critical_health_threshold` for `death_after_critical_
+    # hours` consecutive hours dies (recorded as ground truth; the episode keeps
+    # running so the aftermath is observable). Emergency-vet care resets the clock.
+    critical_health_threshold: float = 12.0
+    death_after_critical_hours: int = 24
+
     # ── Incidents (off in unit tests; on in scenarios) ─────────────────────
     illness_onset_prob: float = 0.08
     camera_offline_prob: float = 0.15

@@ -30,6 +30,7 @@ class Dog:
     weight: float = 20.0          # kg, trends down under chronic underfeeding
     ate_today: bool = False       # ate at any point in the current day
     ate_this_tick: bool = False   # ate during the most recent hour
+    alive: bool = True            # soft terminal: a critically-ill dog left unrescued dies
 
 
 @dataclass
@@ -78,6 +79,8 @@ class World:
     requested_next_hours: int = 0                         # the agent's chosen sleep
     camera_transcript: str = ""                           # latest prose feed (captioner output)
     camera_history: list = field(default_factory=list)    # past transcripts
+    camera_live: str = ""                                 # 'right now' single-moment snapshot
+    death_event: dict | None = None                       # set once if Buddy dies (soft terminal)
 
     # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
     # new_world. An empty/None registry makes every dynamics hook a no-op.
@@ -87,6 +90,7 @@ class World:
     _dispensed: bool = False
     _watered: bool = False
     _last_correct_dose_tick: int | None = None
+    _critical_hours: int = 0                              # consecutive hours at/below critical health
     _cam_offline: bool = False                            # this hour's camera ground truth
     _cam_vb: str = "resting"                              # true visible behaviour (ground truth)
     _cam_shown: str = "resting"                           # what the camera reports (may misread the truth)
@@ -176,11 +180,84 @@ class World:
         self.camera_transcript = text
         self.camera_history.append(text)
 
+    def set_camera_live(self, text: str) -> None:
+        """The solver pushes the current-moment snapshot here; the agent reads it
+        at /camera/live. Unlike the feed it is not historised — it's 'right now'."""
+        self.camera_live = text
+
     def set_illness(self, illness_type: str, severity: int) -> None:
         """Test/scenario helper: start an illness at a given severity band."""
         self.dog.illness_type = illness_type if severity > 0 else None
         self.dog.illness_load = self.config.load_for_severity(severity)
         self.dog.illness_severity = self.config.severity_for_load(self.dog.illness_load)
+
+    # The director's dial: condition label → (illness band, optional health floor).
+    # "critical" additionally drops health to the critical line so the mortality
+    # clock starts. Used for scenario authoring and live steering (NOT agent-facing).
+    _CONDITION_STATES = {
+        "healthy":   (None, 0),
+        "mild":      ("gi_upset", 1),
+        "sick":      ("gi_upset", 2),
+        "very_sick": ("gi_upset", 3),
+        "critical":  ("gi_upset", 3),
+    }
+
+    def set_condition(self, state: str) -> None:
+        """Place Buddy at a named condition from healthy → critical (dying).
+
+        A direct authoring/steering lever over the dog's state; it does not bypass
+        the mechanics (illness still progresses, care still matters from here)."""
+        key = (state or "").strip().lower()
+        if key not in self._CONDITION_STATES:
+            raise ValueError(f"unknown condition {state!r}")
+        illness, severity = self._CONDITION_STATES[key]
+        self.dog.alive = True
+        self._critical_hours = 0
+        if illness is None:
+            self.dog.illness_type = None
+            self.dog.illness_load = 0.0
+            self.dog.illness_severity = 0
+            self.dog.health = 100.0
+        else:
+            self.set_illness(illness, severity)
+            if key == "critical":
+                self.dog.health = self.config.critical_health_threshold
+
+    def emergency_treat(self) -> bool:
+        """Emergency-vet on-site stabilisation: knock the illness down, lift
+        health clear of the critical line, reset the mortality clock, and count it
+        as a fresh dose so recovery holds. Cannot revive the deceased."""
+        if not self.dog.alive:
+            return False
+        cfg = self.config
+        self.dog.illness_load = min(self.dog.illness_load, cfg.load_for_severity(1))
+        self.dog.illness_severity = cfg.severity_for_load(self.dog.illness_load)
+        if self.dog.illness_load <= 0:
+            self.dog.illness_type = None
+        self.dog.health = max(self.dog.health, cfg.critical_health_threshold + 25.0)
+        self._critical_hours = 0
+        self._last_correct_dose_tick = self.tick
+        return True
+
+    def _advance_mortality_one_hour(self) -> None:
+        """One hour of the soft-terminal mortality clock. A dog at/below critical
+        health accrues critical-hours; enough of them unrescued → death (recorded
+        to event_log; the dog stays deceased, the episode continues)."""
+        if not self.dog.alive:
+            return
+        cfg = self.config
+        if self.dog.health <= cfg.critical_health_threshold:
+            self._critical_hours += 1
+            if self._critical_hours >= cfg.death_after_critical_hours:
+                self.dog.alive = False
+                # recorded on its own channel (NOT event_log, which is the
+                # dynamics spine's typed ScheduledEvent log)
+                self.death_event = {
+                    "tick": self.tick, "day": self.day, "hour": self.hour,
+                    "kind": "death", "cause": self.dog.illness_type or "decline",
+                }
+        else:
+            self._critical_hours = 0
 
     # ── the tick (spec §5.1, hourly) ───────────────────────────────────────
     def advance(self, hours: int) -> None:
@@ -255,12 +332,17 @@ class World:
             self.dog.weight = max(0.0, self.dog.weight - cfg.weight_loss_per_day / tpd)
 
         # recovery when well and not ill
-        if self.dog.illness_load <= 0 and self.dog.hunger < cfg.hunger_harm_threshold:
+        if self.dog.alive and self.dog.illness_load <= 0 and self.dog.hunger < cfg.hunger_harm_threshold:
             self.dog.health = min(100.0, self.dog.health + cfg.health_recovery_per_day / tpd)
             # a well-fed, well dog also creeps back toward a healthy weight
             if self.dog.ate_today and self.dog.weight < cfg.healthy_weight:
                 self.dog.weight = min(cfg.healthy_weight,
                                       self.dog.weight + cfg.weight_regain_per_day / tpd)
+
+        # soft-terminal mortality: a dog held at/below critical health long enough
+        # dies. Runs BEFORE the camera derivation so a death reads on the feed in
+        # the same hour (a dead/collapsed dog → 'unresponsive').
+        self._advance_mortality_one_hour()
 
         # camera for this hour: ground truth (observable layer), outage, then the
         # imperfect-vision read the agent actually sees (a misread/obscured view).
@@ -287,7 +369,7 @@ class World:
         healthy; `illness_onset_prob` is per day, spread across the hourly ticks.
         Onset is hidden — the agent only learns of it by observing."""
         cfg = self.config
-        if self.dog.illness_load > 0 or cfg.illness_onset_prob <= 0:
+        if not self.dog.alive or self.dog.illness_load > 0 or cfg.illness_onset_prob <= 0:
             return
         per_hour = cfg.illness_onset_prob / cfg.ticks_per_day
         if self.rng.random() < per_hour:
@@ -298,6 +380,8 @@ class World:
     def _advance_illness_one_hour(self) -> None:
         cfg = self.config
         dog = self.dog
+        if not dog.alive:                      # a deceased dog's state is frozen
+            return
         if dog.illness_load <= 0:
             dog.illness_load = 0.0
             dog.illness_severity = 0
@@ -330,6 +414,7 @@ class World:
             "illness_type": self.dog.illness_type,
             "illness_severity": self.dog.illness_severity,
             "illness_load": self.dog.illness_load,
+            "alive": self.dog.alive,
             "weight": self.dog.weight,
             "ate_this_tick": self.dog.ate_this_tick,
             "ate_today": self.dog.ate_today,
