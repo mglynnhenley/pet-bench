@@ -38,6 +38,8 @@ import urllib.request
 from petcare import personas
 from petcare.brief import build_checkin_prompt
 from petcare.camera import _SCENE_PHRASINGS, build_windows, caption
+from petcare.mailmemory import reply_history
+from petcare.mailtypes import Mail
 from petcare.responder import generate_reply, identify_counterparty
 from petcare.scoring import extract_claims, find_false_completion
 from petcare.scratchpad import scratchpad_op
@@ -235,6 +237,8 @@ class EpisodeRunner:
         self.client = None
         self.inbox: list[dict] = []     # in-memory mailbox: {id, from, subject, body, read}
         self._outbox: list[dict] = []   # outbound awaiting a counterparty reply
+        self._mail_log: list[Mail] = [] # full role-keyed thread, both directions (mailmemory)
+        self._seed = 0                  # episode seed: selects the owner archetype
         self._scratchpad = ""           # the agent's private notepad (see petcare.scratchpad)
         self._mid = 0
         self._cam_rng = random.Random()  # varies which phrasing of each scene the camera uses
@@ -306,6 +310,8 @@ class EpisodeRunner:
         self._mid += 1
         self.inbox.append({"id": f"{self._mid:04d}", "from": frm, "subject": subject,
                            "body": body, "read": False})
+        # mirror into the role-keyed thread log so correspondents have memory
+        self._mail_log.append(Mail(identify_counterparty(frm), "sitter", subject, body))
 
     # ── agent tools (model path) ────────────────────────────────────────────────
     def exec_tool(self, name, args):
@@ -348,6 +354,8 @@ class EpisodeRunner:
         except Exception:
             pass
         self._outbox.append({"to": to, "subject": subject, "body": body})
+        self._mail_log.append(
+            Mail("sitter", identify_counterparty(to), subject, body, sim_hour=float(day) * 24))
         return f"Message sent to {to}."
 
     # ── responder: reply in-character to this turn's outbound mail ───────────────
@@ -358,9 +366,12 @@ class EpisodeRunner:
         model = self._responder()
         view = self._supplier_view(self.get("/internal/state/full"))
         for out in self._outbox:
-            ctx = personas.context_for(identify_counterparty(out.get("to", "")), view)
+            role = identify_counterparty(out.get("to", ""))
+            ctx = personas.context_for(role, view)
+            history = reply_history(role, self._mail_log)
             try:
-                reply = asyncio.run(generate_reply(model, out, context=ctx))
+                reply = asyncio.run(generate_reply(model, out, context=ctx,
+                                                   seed=self._seed, history=history))
             except Exception:
                 reply = "Thank you for your message."
             subj = out["subject"]
@@ -563,6 +574,7 @@ class EpisodeRunner:
             if on_event:
                 on_event(ev)
 
+        self._seed = seed
         self.start_server(scenario, seed)
         try:
             meta = {"scenario": scenario, "days": days, "agent": self.agent, "seed": seed,

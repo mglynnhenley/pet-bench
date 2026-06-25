@@ -108,3 +108,21 @@ def test_templated_captioner_reflects_the_scene():
     assert limping != "The dog appears to be in the frame."
     assert "leg" in limping                  # the limping caption mentions favouring a leg
     assert limping != resting                # different behaviours yield different captions
+
+
+# ── Slice B: correspondent thread memory (in-mem adapter) ─────────────────────
+
+def test_mail_log_accumulates_both_directions_with_roles():
+    """The in-mem runner mirrors every send/deliver into a role-keyed Mail log so
+    correspondents have memory of their own thread (mailmemory)."""
+    runner = EpisodeRunner(agent="neglectful", captioner_model="templated",
+                           responder_model="templated")
+    runner.run(scenario="illness_episode", days=2, seed=1, max_checkins=12)
+    log = runner._mail_log
+    assert log, "expected mail to be logged"
+    # the owner's welcome lands as an inbound owner->sitter message
+    assert any(m.frm == "owner" and m.to == "sitter" for m in log)
+    # the sitter emails the owner -> logged as sitter->owner
+    assert any(m.frm == "sitter" and m.to == "owner" for m in log)
+    # every logged message has the agent on exactly one side
+    assert all(("sitter" in (m.frm, m.to)) for m in log)

@@ -28,6 +28,8 @@ from inspect_ai.tool import bash, tool
 from petcare import personas
 from petcare.brief import build_checkin_prompt
 from petcare.camera import build_windows, caption
+from petcare.mailmemory import reply_history
+from petcare.mailtypes import Mail
 from petcare.responder import generate_reply, identify_counterparty
 from petcare.scoring import extract_claims, find_false_completion
 from petcare.scoring_behaviour import behaviour_judge
@@ -298,14 +300,33 @@ async def _deliver_arrivals(model, before_orders: list, after_orders: list) -> N
         _deliver("supplier@petcare.local", SITTER_EMAIL, subject, body)
 
 
-async def _deliver_replies(model, replied: set) -> None:
+def _role_of(addr: str) -> str:
+    """The agent ('sitter') for its own address, else the counterparty role."""
+    return "sitter" if SITTER_EMAIL in (addr or "") else identify_counterparty((addr or "").strip())
+
+
+def _mail_log_from_mailhog(items: list) -> list[Mail]:
+    """Normalize MailHog's whole message store into a role-keyed thread log (oldest
+    first), so correspondent memory is computed identically to the in-mem runner."""
+    log: list[Mail] = []
+    for m in sorted(items, key=lambda x: x.get("Created", "")):
+        h = m["Content"]["Headers"]
+        log.append(Mail(_role_of(h.get("From", [""])[0]), _role_of(h.get("To", [""])[0]),
+                        h.get("Subject", [""])[0], m["Content"]["Body"]))
+    return log
+
+
+async def _deliver_replies(model, replied: set, seed: int = 0) -> None:
     """The message responder: reply in-character to anything the agent emailed
-    this turn. Grounded per counterparty so hidden state can't leak (responder.py)."""
+    this turn, with memory of the prior thread (mailmemory). Grounded per
+    counterparty so hidden state can't leak (responder.py)."""
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{MAILHOG_API}/api/v2/messages?limit=50")
         full = (await client.get(f"{PET_API}/internal/state/full")).json()
     view = _supplier_view(full)
-    for m in r.json().get("items", []):
+    items = r.json().get("items", [])
+    mail_log = _mail_log_from_mailhog(items)
+    for m in items:
         if m["ID"] in replied:
             continue
         h = m["Content"]["Headers"]
@@ -315,9 +336,12 @@ async def _deliver_replies(model, replied: set) -> None:
         replied.add(m["ID"])
         to = h.get("To", [""])[0].strip()
         subject = h.get("Subject", [""])[0]
-        ctx = personas.context_for(identify_counterparty(to), view)
+        role = identify_counterparty(to)
+        ctx = personas.context_for(role, view)
+        history = reply_history(role, mail_log)
         reply = await generate_reply(model, {"to": to, "subject": subject,
-                                             "body": m["Content"]["Body"]}, context=ctx)
+                                             "body": m["Content"]["Body"]},
+                                     context=ctx, seed=seed, history=history)
         rsubj = subject if subject.startswith("Re:") else f"Re: {subject}"
         _deliver(from_addr=to or OWNER_EMAIL, to=SITTER_EMAIL, subject=rsubj, body=reply)
 
@@ -434,7 +458,7 @@ def petbench_loop():
             await _deliver_arrivals(captioner, before.get("orders", []),
                                     after.get("orders", []))
             # in-character replies to the agent's outbound mail, ready for next turn
-            await _deliver_replies(captioner, replied)
+            await _deliver_replies(captioner, replied, seed=seed)
 
             if after.get("day", 0) >= episode_length:
                 # Persist the full ground-truth world into the Inspect store so the
