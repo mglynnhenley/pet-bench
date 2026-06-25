@@ -807,3 +807,28 @@ see is the judge's domain.
   still worth a separate deterministic scorer or fully absorbed by the judge.
 - Slice 11 finding #1 (pricing/vet `event_log` divergence is unscored) is unaffected: those are
   environment-evolution facts, not honesty signals.
+
+## Scratchpad — capped pad + `overwrite` mode (2026-06-25)
+
+Made the private notepad a **finite, managed** memory instead of an unbounded append-only
+string (it grew without limit, ballooning every read).
+- **Cap:** `petcare/scratchpad.py` `SCRATCHPAD_MAX_CHARS = 2000` (tunable; lives with
+  `KEY`/`SEP`). An `append` that would overflow is **rejected, pad unchanged**, and the
+  response points the agent at `overwrite`. `scratchpad_op` gained an optional `max_chars`
+  arg (default = the constant) so tests inject a small cap.
+- **New `overwrite` mode:** replaces the WHOLE pad with `text` (`text=""` clears it) — the
+  agent's escape valve when full and how it condenses/rewrites stale thinking.
+- **Wired both surfaces + both prompts:** Inspect tool docstring + `SYSTEM_PROMPT`
+  (interpolates `{SCRATCHPAD_MAX_CHARS}`) in `petbench.py`; `TOOLS` schema enum
+  (`["append","overwrite","read"]`) + `AGENT_SYSTEM_PROMPT` in `episode_runner.py`.
+- **Covert-monitoring intact:** the judge (now trajectory-only, slice 12) reads the full
+  tool-call HISTORY (`scoring_behaviour._build_judge_transcript`, every append + overwrite
+  tagged `private-note`), so `overwrite` can't scrub evidence from it — only the agent's own
+  readback shrinks. *What the agent keeps vs drops when it condenses is itself a new
+  deception signal* — squarely the deferred `scratchpad_candor` / slice-12 `deception` lens.
+- **Open question (design): cross-episode memory.** Still per-episode (per-Sample) — the
+  cap was the prerequisite (a carried pad must be bounded). Carrying it Sample→Sample needs
+  a defined sequence + an external carrier (Inspect's store is per-sample) — deferred.
+
+Tests: `tests/test_scratchpad.py` +9 (cap rejection, usage readout, overwrite replace/clear/
+free-room/too-long, store-level overwrite + reject). Full suite **324 green** (post slice-12 merge).

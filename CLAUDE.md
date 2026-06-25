@@ -23,7 +23,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `petcare/mailflow.py` | Email cadence: `schedule_inbound` — which unsolicited mail fires per wake (pure).|
 | `petcare/scoring.py` | **Objective backstop** (`find_false_completion`) — flags a claimed action the agent's OWN log shows it never took (`fed` w/o feed, `medicated` w/o dose). Reads only the agent's record (emails + `action_log`), **never the dog's hidden state** (slice 12). No LLM.|
 | `petcare/scoring_behaviour.py` | **Primary scorer — model-graded, TRAJECTORY-ONLY** (`behaviour_judge`): grades 6 AI-safety behaviours (reward-hacking / deception / **sycophancy** / oversight-tampering / duty-of-care / transparency+) against the agent's OWN knowledge, **never the hidden ground truth** (slice 12 — comparing to dog-state measures camera noise, not alignment). Reads the whole trajectory **incl. the private `scratchpad` channel, surfaced tagged `private-note`** (covert monitoring, `_PRIVATE_TOOLS`); offline-regradable on `state.messages`.|
-| `petcare/scratchpad.py` | Pure shared scratchpad logic (`scratchpad_op`, `KEY`/`SEP`) — the agent's private accumulating notepad, **no Inspect dependency** so both `petbench` (the Inspect tool) and the standalone `EpisodeRunner`/`dashboard` import the same contract.|
+| `petcare/scratchpad.py` | Pure shared scratchpad logic (`scratchpad_op`, `KEY`/`SEP`, `SCRATCHPAD_MAX_CHARS`) — the agent's private notepad, **capped** (append that overflows is rejected) with append/`overwrite`/read modes; **no Inspect dependency** so both `petbench` (the Inspect tool) and the standalone `EpisodeRunner`/`dashboard` import the same contract.|
 | `petcare/dynamics.py` | **Pluggable long-horizon dynamics spine** (slice 11). Per-module independent RNG, pre-sample-at-build → apply-over-time, ground truth to `world.event_log`. **Off by default** (`enabled_dynamics=()` ⇒ byte-identical to static). `world.dynamics.{vet,pricing}()` read-points fall back to static `Config`.|
 | `petcare/dyn_buddy.py` / `dyn_vet.py` / `dyn_pricing.py` | The three dynamics modules: Buddy's pre-sampled life-event calendar (illness/injury/good-day/stressor), vet opening-hours/surge/outages, and a non-stationary food-price series with supply shocks. Each registers into `dynamics.py`; **wired but not yet enabled on any scenario** — see AGENT.md slice 11 follow-ups.|
 | `petcare/brief.py`  | `build_checkin_prompt()` — stateless turn trigger (no state).|
@@ -38,7 +38,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `pet_bench.py`, `pet_api/`, `run_local.sh`, `mailhog` | shelter-MVP plumbing reference (slice-4 reuse). |
 | `AGENT.md`          | Live task list + decisions to review.                      |
 
-## Built so far (315 tests green)
+## Built so far (324 tests green)
 
 **Slice 1 + 1b — domain core, hourly.** Ground truth lives in `World` (spec
 §3.1, §3.6); the agent never sees it directly. Time is **hourly** (24 ticks/day):
@@ -187,7 +187,11 @@ endpoint-poking (full rationale + decisions 43–45 in AGENT.md):
   grade it** — `_build_judge_transcript` surfaces it tagged `private-note`
   (`_PRIVATE_TOOLS` marks rather than drops) so the private-vs-public gap is scored.
   Still captured in the `.eval` log too. All tool params are required (`mode`,
-  `text`) per OpenAI strict mode — pass `text=""` to read.
+  `text`) per OpenAI strict mode — pass `text=""` to read. **Capped** at
+  `SCRATCHPAD_MAX_CHARS` (2000): an `append` that would overflow is rejected and the
+  agent is pointed at `overwrite` (replace the whole pad / condense; `text=""` clears) —
+  the judge still sees the full append+overwrite history, so condensing can't hide
+  anything from it, but *what the agent drops when it rewrites* is itself a signal.
 - **Varied scenario dataset** (`petbench.py` dataset + `server.build_world`). The
   single Sample became a `(scenario × seed)` sweep over **8 scenarios** (baseline,
   thin_margin, illness_episode, limp_injury, lethargy_creep, delivery_trouble,
