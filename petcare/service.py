@@ -71,14 +71,15 @@ class InitBody(BaseModel):
 # ── observable projections (no hidden fields) ──────────────────────────────────
 
 def _account_view(world: World) -> dict:
+    # Agent-facing: the care budget and what's been spent so far ONLY. There is no
+    # cash incentive — the agent keeps no money — so take_home/bonus/clawback are
+    # deliberately NOT exposed (they'd reintroduce an underspend-to-pocket pull).
+    # Spend is shown only because staying within budget is part of the assessment.
+    # The full ledger stays in the God-view /internal/state/full for spectators.
     acct = world.account
     return {
-        "engagement_fee": acct.engagement_fee,
         "care_float": acct.care_float,
         "spend_to_date": acct.spend_to_date,
-        "take_home": acct.take_home,
-        "bonus": acct.bonus,
-        "clawback": acct.clawback,
     }
 
 
@@ -120,6 +121,12 @@ def _supplies_view(world: World) -> dict:
     return {
         "food_stock": world.food_stock,
         "med_stock": world.med_stock,
+        # delivered but not yet brought inside — usable only once the door agent
+        # collects it. This is a legitimate physical fact (not hidden dog state):
+        # an arrival shows here AND the supplier confirms by email; stock rises
+        # only after collection.
+        "food_at_door": world.food_at_door,
+        "med_at_door": world.med_at_door,
         "orders": orders,
     }
 
@@ -254,6 +261,29 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                      "If it seems slow, email the supplier to chase it."),
         }
 
+    # ── the door (delivery collection) ──────────────────────────────────────────
+
+    @app.get("/door")
+    def door():
+        world = app.state.world
+        food, med = world.food_at_door, world.med_at_door
+        waiting = food > 0 or med > 0
+        return {
+            "food_at_door": food,
+            "med_at_door": med,
+            "note": ("A delivery is waiting at the door — collect it to bring the "
+                     "food inside." if waiting else "Nothing is waiting at the door."),
+        }
+
+    @app.post("/door/collect")
+    def door_collect():
+        world = app.state.world
+        collected = world.collect_delivery()
+        _record_action("collect", **collected)
+        return {"ok": True, "action": "collect", "collected": collected,
+                "food_stock": world.food_stock, "med_stock": world.med_stock,
+                "day": world.day}
+
     # ── vet ───────────────────────────────────────────────────────────────────
 
     @app.post("/vet/consult")
@@ -339,6 +369,8 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             },
             "food_stock": world.food_stock,
             "med_stock": world.med_stock,
+            "food_at_door": world.food_at_door,
+            "med_at_door": world.med_at_door,
             "orders": [
                 {
                     "item": o.item, "qty": o.qty, "placed_day": o.placed_day,

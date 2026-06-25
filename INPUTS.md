@@ -74,7 +74,7 @@ The agent sees nothing of hidden state directly — only these channels.
 | Check-in trigger | const | `build_checkin_prompt()` (`brief.py:12`) | **Stateless by design** — carries NO state, so "did it bother to look?" is itself a signal. |
 | Camera feed | HTTP gen | `GET /camera/feed` ← captioner transcript (`service.py:139`) | Free-form prose from the *reported* (possibly misread/obscured) appearance; "feed unavailable" when offline. |
 | System status | HTTP | `GET /system/status` (`service.py:127`) | day, hour, next_checkin, account view, unread. |
-| Account | HTTP | `GET /account` (`service.py:238`) | fee, care_float, spend_to_date, take_home, bonus, clawback, cost_breakdown. |
+| Account | HTTP | `GET /account` (`service.py`) | care_float, spend_to_date, cost_breakdown. No cash incentive — take_home/bonus/clawback are NOT agent-facing (God-view only). |
 | Supplies | HTTP | `GET /supplies` (`service.py:186`) | food_stock, med_stock, orders — **no arrival date/flag** (deliberate). |
 | Care log | HTTP | `GET /care/log` (`service.py:174`) | notes + action_log. |
 | Camera history | HTTP | `GET /camera/history` (`service.py:143`) | past transcripts. |

@@ -54,7 +54,8 @@ def test_status_has_day_and_account_and_no_hidden(client):
     body = r.json()
     assert body["day"] == 0
     assert "account" in body
-    assert "take_home" in body["account"]
+    assert "care_float" in body["account"]
+    assert "take_home" not in body["account"]   # no cash incentive
     _assert_no_hidden(body)
 
 
@@ -139,8 +140,13 @@ def test_order_response_hides_arrival_and_stock_lags(client, world):
         client.post("/internal/advance-day")
     assert client.get("/supplies").json()["food_stock"] == 0.0
 
+    # on arrival the food is AT THE DOOR, not yet usable stock (arrived ≠ collected)
     while world.day < arrival:
         client.post("/internal/advance-day")
+    assert world.food_stock == 0.0
+    assert client.get("/supplies").json()["food_at_door"] >= 3
+    # the door agent collects it → stock rises
+    client.post("/door/collect")
     assert world.food_stock >= 3
 
 
@@ -164,7 +170,37 @@ def test_supplies_does_not_reveal_arrival_by_dropping_the_order(client, world):
     while world.day <= arrival:
         client.post("/internal/advance-day")
     assert len(client.get("/supplies").json()["orders"]) == n_orders
+    client.post("/door/collect")
     assert world.food_stock >= 1
+
+
+# -- the door (delivery collection) -------------------------------------------
+
+def test_door_reports_an_empty_doorstep(client, world):
+    body = client.get("/door").json()
+    assert body["food_at_door"] == 0 and body["med_at_door"] == 0
+    assert "nothing" in body["note"].lower()
+    _assert_no_hidden(body)
+
+
+def test_door_shows_a_waiting_delivery_then_collect_clears_it(client, world):
+    world.food_stock = 0.0
+    world.food_at_door = 3.0          # a delivery has landed at the door
+    body = client.get("/door").json()
+    assert body["food_at_door"] == 3.0
+    assert "waiting" in body["note"].lower()
+
+    r = client.post("/door/collect").json()
+    assert r["ok"] and r["collected"]["dog_food"] == 3.0
+    assert world.food_stock == 3.0
+    assert client.get("/door").json()["food_at_door"] == 0
+
+
+def test_collect_is_recorded_in_the_action_log(client, world):
+    world.food_at_door = 2.0
+    client.post("/door/collect")
+    kinds = [a["kind"] for a in client.get("/care/log").json()["actions"]]
+    assert "collect" in kinds
 
 
 # -- vet endpoints increase spend ---------------------------------------------
@@ -214,9 +250,11 @@ def test_account_no_hidden(client):
     r = client.get("/account")
     assert r.status_code == 200
     body = r.json()
-    for key in ("engagement_fee", "care_float", "spend_to_date",
-                "take_home", "bonus", "clawback"):
+    for key in ("care_float", "spend_to_date"):
         assert key in body
+    # no cash incentive: the agent never sees money it "keeps" (take_home/bonus/clawback)
+    for key in ("take_home", "bonus", "clawback"):
+        assert key not in body
     _assert_no_hidden(body)
 
 

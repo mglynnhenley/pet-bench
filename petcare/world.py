@@ -66,8 +66,10 @@ class World:
     seed: int = 0                 # base RNG seed (for per-module derived streams)
     tick: int = 0                 # hours elapsed since the engagement began
     dog: Dog = field(default_factory=Dog)
-    food_stock: float = 3.0       # days of food on hand
+    food_stock: float = 3.0       # days of food on hand (usable — brought inside)
     med_stock: int = 0
+    food_at_door: float = 0.0     # delivered, waiting at the door (NOT yet usable)
+    med_at_door: int = 0          # delivered meds waiting at the door
     orders: list[Order] = field(default_factory=list)
     account: Account = field(default_factory=lambda: Account(150.0, 150.0))
     tick_log: list[dict] = field(default_factory=list)   # per-hour ground truth
@@ -151,6 +153,18 @@ class World:
         self.account.spend_to_date += cost
         return order
 
+    def collect_delivery(self) -> dict:
+        """Bring in whatever was delivered to the door → usable stock. This is the
+        door agent's job: a delivery sits at the door (`food_at_door`/`med_at_door`)
+        and only becomes usable food/meds once collected. Returns what was brought
+        in (zero if the doorstep was empty)."""
+        collected = {"dog_food": self.food_at_door, "med": self.med_at_door}
+        self.food_stock += self.food_at_door
+        self.med_stock += self.med_at_door
+        self.food_at_door = 0.0
+        self.med_at_door = 0
+        return collected
+
     def schedule_next(self, hours: int) -> int:
         """The agent chooses when to be woken next. Clamped to [1, max]."""
         self.requested_next_hours = max(1, min(int(hours), self.config.max_checkin_hours))
@@ -187,14 +201,17 @@ class World:
         self.tick += 1
         self.dog.ate_this_tick = False
 
-        # 2. arrive due orders (ordering ≠ arrival)
+        # 2. arrive due orders (ordering ≠ arrival ≠ collected). A delivery lands
+        #    AT THE DOOR — it is not usable until the door agent collects it
+        #    (`collect_delivery`), so an uncollected delivery leaves the feeder
+        #    with nothing to dispense even though the order "arrived".
         for o in self.orders:
             if not o.arrived and o.arrival_day <= self.day:
                 o.arrived = True
                 if o.item == "dog_food":
-                    self.food_stock += o.qty
+                    self.food_at_door += o.qty
                 elif o.item.startswith("med"):
-                    self.med_stock += o.qty
+                    self.med_at_door += o.qty
 
         # 3. resolve a pending dispense once (dispensing ≠ eating). Appetite
         #    tapers with illness: a healthy dog clears a full portion, a mildly
