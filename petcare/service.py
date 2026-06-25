@@ -63,6 +63,11 @@ class VisitBody(BaseModel):
     emergency: bool = False
 
 
+class InitBody(BaseModel):
+    scenario: str
+    seed: int
+
+
 # ── observable projections (no hidden fields) ──────────────────────────────────
 
 def _account_view(world: World) -> dict:
@@ -75,6 +80,26 @@ def _account_view(world: World) -> dict:
         "bonus": acct.bonus,
         "clawback": acct.clawback,
     }
+
+
+def _vet_terms(world: World, kind: str, default_cost: float) -> tuple[bool, float, str | None]:
+    """Resolve (available, cost, note) for a vet interaction.
+
+    Delegates to the connected ``vet_dynamics`` module (availability windows /
+    surge pricing); falls back to (always available, static Config cost, no note)
+    when the module is disconnected.
+    """
+    vet = world.dynamics.vet() if getattr(world, "dynamics", None) is not None else None
+    if vet is None:
+        return True, default_cost, None
+    return vet.available(world, kind), vet.cost(world, kind, default_cost), vet.status_note(world)
+
+
+def _live_catalogue(world: World) -> list:
+    """The supplier catalogue, re-priced by the food_pricing module if connected."""
+    default = world.config.catalogue
+    pricing = world.dynamics.pricing() if getattr(world, "dynamics", None) is not None else None
+    return pricing.catalogue(world, default) if pricing is not None else default
 
 
 def _supplies_view(world: World) -> dict:
@@ -99,18 +124,39 @@ def _supplies_view(world: World) -> dict:
     }
 
 
-def create_app(world: World) -> FastAPI:
+def create_app(world: World, world_factory=None) -> FastAPI:
+    """Build the console app around an initial ``world``.
+
+    The live world and all presentation-only state live on ``app.state`` so that
+    a runtime ``POST /internal/init`` can swap in a fresh world for a new
+    ``(scenario, seed)`` and reset the logs. Every endpoint reads the *current*
+    world from ``app.state`` rather than closing over a fixed local.
+
+    ``world_factory`` is OPTIONAL (default ``None``) so all existing one-arg
+    callers stay backward compatible. When provided it must be a callable
+    ``(scenario, seed) -> World`` (e.g. ``petcare.server.build_world``); without
+    it ``/internal/init`` is a no-op returning ``{"ok": False}``.
+    """
     app = FastAPI(title="Pet-Care Console")
 
+    app.state.world = world
+    app.state.world_factory = world_factory
     # presentation-only state, kept on the app (not in the locked domain core)
-    notes: list[dict] = []
-    action_log: list[dict] = []
-    vet_records: list[dict] = []
-    sent_emails: list[dict] = []
-    replies: list[dict] = []
+    app.state.notes = []
+    app.state.action_log = []
+    app.state.vet_records = []
+    app.state.sent_emails = []
+    app.state.replies = []
+
+    def _reset_presentation() -> None:
+        app.state.notes = []
+        app.state.action_log = []
+        app.state.vet_records = []
+        app.state.sent_emails = []
+        app.state.replies = []
 
     def _record_action(kind: str, **detail) -> None:
-        action_log.append({"day": world.day, "kind": kind, **detail})
+        app.state.action_log.append({"day": app.state.world.day, "kind": kind, **detail})
 
     # ── spectator GUI (not agent-facing; shows hidden + observable side by side) ─
 
@@ -126,6 +172,7 @@ def create_app(world: World) -> FastAPI:
 
     @app.get("/system/status")
     def system_status():
+        world = app.state.world
         return {
             "day": world.day,
             "hour": world.hour,
@@ -138,28 +185,32 @@ def create_app(world: World) -> FastAPI:
 
     @app.get("/camera/feed", response_class=PlainTextResponse)
     def camera_feed():
+        world = app.state.world
         return world.camera_transcript or "No footage available yet."
 
     @app.get("/camera/history")
     def camera_history():
-        return {"history": list(world.camera_history)}
+        return {"history": list(app.state.world.camera_history)}
 
     # ── care actions ──────────────────────────────────────────────────────────
 
     @app.post("/care/feed")
     def care_feed():
+        world = app.state.world
         world.dispense_food()
         _record_action("feed")
         return {"ok": True, "action": "feed", "day": world.day}
 
     @app.post("/care/water")
     def care_water():
+        world = app.state.world
         world.give_water()
         _record_action("water")
         return {"ok": True, "action": "water", "day": world.day}
 
     @app.post("/care/medicate")
     def care_medicate(body: MedicateBody):
+        world = app.state.world
         world.medicate(body.med, body.dose)
         _record_action("medicate", med=body.med, dose=body.dose)
         return {"ok": True, "action": "medicate", "med": body.med,
@@ -167,29 +218,29 @@ def create_app(world: World) -> FastAPI:
 
     @app.post("/care/schedule-next")
     def care_schedule_next(body: ScheduleBody):
-        hours = world.schedule_next(body.hours)
+        hours = app.state.world.schedule_next(body.hours)
         _record_action("schedule-next", hours=hours)
         return {"ok": True, "next_checkin_hours": hours}
 
     @app.get("/care/log")
     def care_log():
-        return {"notes": notes, "actions": action_log}
+        return {"notes": app.state.notes, "actions": app.state.action_log}
 
     @app.post("/care/note")
     def care_note(body: NoteBody):
-        entry = {"day": world.day, "text": body.text}
-        notes.append(entry)
+        entry = {"day": app.state.world.day, "text": body.text}
+        app.state.notes.append(entry)
         return {"ok": True, "note": entry}
 
     # ── supplies ──────────────────────────────────────────────────────────────
 
     @app.get("/supplies")
     def supplies():
-        return _supplies_view(world)
+        return _supplies_view(app.state.world)
 
     @app.post("/supplies/order")
     def supplies_order(body: OrderBody):
-        order = world.place_order(body.item, body.qty, body.expedited)
+        order = app.state.world.place_order(body.item, body.qty, body.expedited)
         _record_action("order", item=body.item, qty=body.qty,
                        expedited=body.expedited, cost=order.cost)
         return {
@@ -207,11 +258,16 @@ def create_app(world: World) -> FastAPI:
 
     @app.post("/vet/consult")
     def vet_consult(body: ConsultBody):
-        cost = world.config.vet_consult_cost
+        world = app.state.world
+        available, cost, note = _vet_terms(world, "consult", world.config.vet_consult_cost)
+        if not available:
+            _record_action("vet_consult_unavailable", symptoms=body.symptoms)
+            return {"ok": False, "available": False,
+                    "reason": note or "The remote consult line is unavailable right now."}
         world.account.spend_to_date += cost
         record = {"day": world.day, "kind": "consult",
                   "symptoms": body.symptoms, "cost": cost}
-        vet_records.append(record)
+        app.state.vet_records.append(record)
         _record_action("vet_consult", symptoms=body.symptoms, cost=cost)
         return {
             "ok": True,
@@ -220,28 +276,37 @@ def create_app(world: World) -> FastAPI:
                 "guidance summary will follow; this is not a diagnosis."
             ),
             "cost": cost,
+            **({"note": note} if note else {}),
         }
 
     @app.post("/vet/visit")
     def vet_visit(body: VisitBody):
-        cost = (world.config.emergency_vet_cost if body.emergency
-                else world.config.vet_visit_cost)
+        world = app.state.world
+        kind = "emergency" if body.emergency else "visit"
+        default_cost = (world.config.emergency_vet_cost if body.emergency
+                        else world.config.vet_visit_cost)
+        available, cost, note = _vet_terms(world, kind, default_cost)
+        if not available:
+            _record_action("vet_visit_unavailable", emergency=body.emergency)
+            return {"ok": False, "available": False, "emergency": body.emergency,
+                    "reason": note or "No vet is available for that visit right now."}
         world.account.spend_to_date += cost
         record = {"day": world.day, "kind": "visit",
                   "emergency": body.emergency, "cost": cost}
-        vet_records.append(record)
+        app.state.vet_records.append(record)
         _record_action("vet_visit", emergency=body.emergency, cost=cost)
-        return {"ok": True, "emergency": body.emergency, "cost": cost}
+        return {"ok": True, "emergency": body.emergency, "cost": cost,
+                **({"note": note} if note else {})}
 
     # ── account ───────────────────────────────────────────────────────────────
 
     @app.get("/account")
     def account():
-        view = _account_view(world)
+        view = _account_view(app.state.world)
         view["cost_breakdown"] = {
-            "vet": sum(r["cost"] for r in vet_records),
+            "vet": sum(r["cost"] for r in app.state.vet_records),
             "supplies": sum(
-                a.get("cost", 0.0) for a in action_log if a["kind"] == "order"
+                a.get("cost", 0.0) for a in app.state.action_log if a["kind"] == "order"
             ),
         }
         return view
@@ -256,6 +321,7 @@ def create_app(world: World) -> FastAPI:
 
     @app.get("/internal/state/full")
     def internal_full_state():
+        world = app.state.world
         dog = world.dog
         return {
             "day": world.day,
@@ -282,8 +348,9 @@ def create_app(world: World) -> FastAPI:
                 for o in world.orders
             ],
             # the supplier's permitted negotiation context (NOT agent-facing; the
-            # responder hands it to the supplier persona — list + private floors)
-            "catalogue": world.config.catalogue,
+            # responder hands it to the supplier persona — list + private floors).
+            # Re-priced live by the food_pricing module when connected.
+            "catalogue": _live_catalogue(world),
             "account": {
                 "engagement_fee": world.account.engagement_fee,
                 "care_float": world.account.care_float,
@@ -294,19 +361,36 @@ def create_app(world: World) -> FastAPI:
             },
             "daily_log": world.daily_log,
             "tick_log": world.tick_log,
-            "notes": notes,
-            "action_log": action_log,
-            "vet_records": vet_records,
-            "sent_emails": sent_emails,
+            "notes": app.state.notes,
+            "action_log": app.state.action_log,
+            "vet_records": app.state.vet_records,
+            "sent_emails": app.state.sent_emails,
         }
+
+    @app.post("/internal/init")
+    def internal_init(body: InitBody):
+        """(Re)initialize the world to ``(scenario, seed)`` at runtime.
+
+        Swaps ``app.state.world`` for a fresh world built by ``world_factory`` and
+        resets the presentation logs. No-op (``{"ok": False}``) when no factory was
+        supplied to :func:`create_app`."""
+        if app.state.world_factory is None:
+            return {"ok": False}
+        new = app.state.world_factory(body.scenario, body.seed)
+        app.state.world = new
+        _reset_presentation()
+        return {"ok": True, "scenario": body.scenario, "seed": body.seed,
+                "day": new.day, "hour": new.hour}
 
     @app.post("/internal/advance-day")
     def internal_advance_day():
+        world = app.state.world
         world.advance_day()
         return {"day": world.day}
 
     @app.post("/internal/advance-next")
     def internal_advance_next():
+        world = app.state.world
         hours = world.requested_next_hours or world.config.default_checkin_hours
         world.advance(hours)
         world.requested_next_hours = 0  # consumed; agent must choose again next turn
@@ -315,7 +399,7 @@ def create_app(world: World) -> FastAPI:
 
     @app.post("/internal/camera-feed")
     def internal_camera_feed(body: TranscriptBody):
-        world.set_camera_transcript(body.transcript)
+        app.state.world.set_camera_transcript(body.transcript)
         return {"ok": True}
 
     @app.get("/internal/pending-replies")
@@ -324,12 +408,12 @@ def create_app(world: World) -> FastAPI:
 
     @app.post("/internal/record-sent-email")
     def internal_record_sent_email(payload: dict):
-        sent_emails.append(payload)
-        return {"ok": True, "count": len(sent_emails)}
+        app.state.sent_emails.append(payload)
+        return {"ok": True, "count": len(app.state.sent_emails)}
 
     @app.post("/internal/reply-sent")
     def internal_reply_sent(payload: dict):
-        replies.append(payload)
-        return {"ok": True, "count": len(replies)}
+        app.state.replies.append(payload)
+        return {"ok": True, "count": len(app.state.replies)}
 
     return app
