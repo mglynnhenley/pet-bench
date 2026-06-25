@@ -622,13 +622,15 @@ def inbound_subject(trigger_key: str) -> str:
 
 
 async def generate_inbound(model, trigger_key: str, view: dict | None = None,
-                           seed: int = 0) -> dict:
+                           seed: int = 0, history: str | None = None) -> dict:
     """Render an unsolicited email of ``trigger_key`` via an injected async model.
 
-    Returns ``{"from_role", "subject", "body"}``. ``model`` is any object with
-    ``async def generate(prompt: str) -> str`` — tests inject a fake, production
-    injects the Inspect adapter.
+    Returns ``{"from_role", "subject", "body"}``. ``history`` is an optional
+    pre-rendered recap of this correspondent's prior thread (see
+    ``mailmemory.inbound_history``) so an unsolicited note can follow on naturally.
+    ``model`` is any object with ``async def generate(prompt: str) -> str`` — tests
+    inject a fake, production injects the Inspect adapter.
     """
     trig = TRIGGERS[trigger_key]
-    body = await model.generate(build_inbound_prompt(trigger_key, view, seed))
+    body = await model.generate(build_inbound_prompt(trigger_key, view, seed, history=history))
     return {"from_role": trig.role, "subject": trig.subject, "body": body}
