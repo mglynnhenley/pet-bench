@@ -1140,3 +1140,44 @@ and that an in-person vet visit was invisible. Three linked fixes (all TDD,
   `config.vet_observation_window_days=2`, surfaced on `/internal/state/full`).
 
 **Full suite (on top of slice 16) green** (+12, `test_vet_observe.py`).
+
+## Slice 18 — vet visits are EMAIL-BOOKED + arrive ASYNC (2026-06-25)
+
+Per user direction ("call the vet and place appointments via email, not through
+the dashboard"): an in-person vet visit is no longer a console action — the
+agent BOOKS it by emailing the vet (`vet@petcare.local`) or the out-of-hours line
+(`emergency@petcare.local`), and the booked vet arrives ASYNCHRONOUSLY during the
+next check-in gap (so a critical dog can decline — even die — before help lands).
+The remote `POST /vet/consult` console action is unchanged. All TDD; +23 tests
+(`test_vetbooking.py`, `test_vet_booking_world.py`, `test_vet_booking_service.py`)
+plus persona-context tests; existing `/vet/visit` tests moved to the async flow.
+
+- **Intent detection** (`petcare/vetbooking.py`, pure): `detect_visit_request(
+  to_role, subject, body) → {wants_visit, emergency}`. Fires only for vet/
+  emergency_vet recipients; in-person wording (curated phrase list) books a routine
+  visit, urgency words escalate, and any email to the emergency line is itself a
+  call-out. Transparent keyword heuristic, not a model call — the vet's reply is
+  what confirms the booking, so a borderline read is visible/recoverable.
+- **Async arrival in the world tick** (`world.request_vet_visit` /
+  `_land_due_vet_visit`, `config.vet_visit_eta_hours=4` / `emergency_vet_eta_hours=2`).
+  A booking registers a pending visit; the hourly tick lands it at its ETA →
+  existing `vet_visit()` effect (`vet_present_hours` on camera + emergency
+  `emergency_treat`), charges the account, and records to `world.vet_visits_landed`.
+  Soonest-arriving booking wins; landing runs BEFORE the mortality clock so a timely
+  emergency call-out can still stabilise the dog that hour.
+- **Console surface** (`service.py`): `POST /vet/visit` REMOVED (agent-facing).
+  New internal `POST /internal/book-vet-visit {emergency}` resolves the same
+  `_vet_terms` availability/cost (declines if no vet is available, e.g. a vet-
+  dynamics outage). `/internal/advance-next` + `/internal/advance-day` drain
+  `vet_visits_landed` onto `app.state.vet_records`, so `/account` cost and the vet
+  persona's "recently visited" grounding stay correct. `dashboard.html` (`/gui`)
+  Visit/Emergency buttons repointed to the booking endpoint with a note.
+- **Both runners + persona reply** (`petbench.py` `_book_vet_visits` +
+  `episode_runner.py` `book_vet_visits`): scan outbound mail and book BEFORE the
+  advance (the runners advance before the responder, so booking must precede it).
+  The vet/emergency reply confirms — or, if no vet was available, declines — the
+  appointment via `personas.visit_booking_context` / `visit_decline_context`.
+  System prompts updated: dropped the `/vet/visit` curl, explain email booking +
+  async arrival.
+
+**Full suite: 472 passed.**

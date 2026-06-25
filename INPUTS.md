@@ -96,8 +96,8 @@ Two tool families: shell (`bash` → curl the console) and email.
 | Give water | HTTP | `POST /care/water` | — |
 | Medicate | HTTP | `POST /care/medicate` | `{med, dose}` |
 | Place order | HTTP | `POST /supplies/order` | `{item, qty, expedited}` |
-| Vet consult | HTTP | `POST /vet/consult` | `{symptoms}` |
-| Vet visit | HTTP | `POST /vet/visit` | `{emergency}` |
+| Vet consult | HTTP | `POST /vet/consult` | `{symptoms}` (remote advice) |
+| Vet visit (in-person) | **email** | `send_email("vet@petcare.local" / "emergency@petcare.local", …)` | booked by emailing the vet (no console action); the booked vet arrives async during a later gap |
 | Care note | HTTP | `POST /care/note` | `{text}` |
 | **Schedule next wake** | HTTP | `POST /care/schedule-next` | `{hours}` — clamped `[1, max_checkin_hours]`; drives the between-turn advance |
 | Send email | tool | `send_email(to, subject, body)` | recorded day-stamped for scoring (`/internal/record-sent-email`) |
