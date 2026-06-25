@@ -481,7 +481,8 @@ async def _deliver_cadence(model, state: CadenceState, cad_rng, after: dict,
     cadence = after.get("cadence") or DEFAULT_EMAIL_CADENCE
     now_h = after.get("tick", after.get("day", 0) * 24 + after.get("hour", 0))
     dog = after.get("dog", {})
-    dog_view = {"illness_severity": dog.get("illness_severity"),
+    dog_view = {"alive": dog.get("alive", True),
+                "illness_severity": dog.get("illness_severity"),
                 "hunger": dog.get("hunger"), "health": dog.get("health")}
     _outbound_clocks(state, after.get("sent_emails", []))
     signals = compute_signals(state, now_h, after.get("tick_log", []), dog_view, cadence)

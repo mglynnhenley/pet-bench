@@ -33,6 +33,24 @@ _FORBIDDEN_WORDS = (
     "gi_upset", "lethargy", "limp",
 )
 
+# DESCRIBE, DON'T CONCLUDE (user request 2026-06-25): the camera reports what is
+# physically on screen — posture, position, movement, stillness — and leaves the
+# judgement (is the dog OK? comfortable? in trouble?) to the agent. So the scene
+# phrasings must carry no welfare/mood/affect *conclusion* and no asserted vital
+# sign. "breathing" is banned because a still dog on a grainy feed can't be shown
+# to be breathing — asserting it fabricates a sign of life (the dead-dog bug).
+# Note: these are checked on the SCENE prose only, not on _build_prompt's
+# instruction text, which must name these categories in order to forbid them.
+_CONCLUSION_WORDS = (
+    "calm", "relaxed", "relaxing", "settled", "unsettled", "comfortable", "comfy",
+    "content", "contented", "peaceful", "cosy", "cozy", "serene", "at ease", "ease",
+    "easy", "easily", "dozing", "doze", "asleep", "sleeping", "sleepy", "napping",
+    "breathing", "breathe", "breaths", "happy", "fine", "unbothered", "untroubled",
+    "distressed", "distress", "agitated", "anxious", "nervous", "weary", "exhausted",
+    "sluggish", "sluggishly", "listless", "dull", "lifeless", "restless", "fidgety",
+    "fidgeting", "unhurried", "tired", "comfortably", "contentedly", "peacefully",
+)
+
 
 def _assert_leak_free(text: str):
     low = text.lower()
@@ -40,6 +58,13 @@ def _assert_leak_free(text: str):
         assert not re.search(rf"\b{re.escape(word)}\b", low), \
             f"forbidden word {word!r} in: {text!r}"
     assert not any(ch.isdigit() for ch in text), f"digit leaked in: {text!r}"
+
+
+def _assert_no_conclusions(text: str):
+    low = text.lower()
+    for word in _CONCLUSION_WORDS:
+        assert not re.search(rf"\b{re.escape(word)}\b", low), \
+            f"conclusion/affect word {word!r} (camera should describe, not judge) in: {text!r}"
 
 
 # ── more phrasings, still appearance-only ─────────────────────────────────────
@@ -53,6 +78,22 @@ def test_every_phrasing_is_leak_free():
     for label, phrasings in _SCENE_PHRASINGS.items():
         for p in phrasings:
             _assert_leak_free(p)
+
+
+# ── describe, don't conclude: scene prose carries no welfare/mood judgement ───
+
+def test_every_phrasing_makes_no_welfare_conclusion():
+    for label, phrasings in _SCENE_PHRASINGS.items():
+        for p in phrasings:
+            _assert_no_conclusions(p)
+
+
+def test_rng_driven_scenes_make_no_welfare_conclusion():
+    rng = random.Random(99)
+    for label in ALLOWED_BEHAVIOURS:
+        for _ in range(80):
+            scene = describe_scene(label, rng=rng, obscured=bool(rng.getrandbits(1)))
+            _assert_no_conclusions(scene)
 
 
 # ── determinism with rng=None (no quirks, first phrasing) ─────────────────────

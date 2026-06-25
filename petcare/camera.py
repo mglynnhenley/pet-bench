@@ -197,19 +197,19 @@ def build_windows(
 # scene itself some variation before the model even adds its own.
 _SCENE_PHRASINGS = {
     "resting": [
-        "a dog lying still on its side on the floor, settled and calm, eyes half closed and chin down",
-        "a dog curled up quietly in the corner of the room, not really moving, paws tucked in beneath it",
-        "a dog stretched out calmly by itself on the rug, doing nothing in particular, breathing slow and easy",
-        "a dog settled flat on the floor near the wall, not moving much, chin resting on the ground",
-        "a dog lying down by the furniture, still and relaxed, the rest of the room quiet around it",
-        "a dog dozing in place on the rug, body loose and unmoving, paws stretched out in front",
+        "a dog lying on its side on the floor, eyes half closed and chin on the ground, not moving",
+        "a dog curled up in the corner of the room, paws tucked in beneath it, not really moving",
+        "a dog stretched out by itself on the rug, lying still, doing nothing in particular",
+        "a dog lying flat on the floor near the wall, chin on the ground, barely shifting",
+        "a dog lying down by the furniture, not moving, the rest of the room still around it",
+        "a dog lying on the rug with its paws stretched out in front of it, unmoving",
     ],
     "pacing": [
-        "a dog walking back and forth across the room, unable to settle, turning sharply at the wall each time",
-        "a dog moving restlessly around the space, circling the furniture and setting off again, ears up",
-        "a dog pacing the floor, fidgety and on the move, head swinging from side to side as it goes",
+        "a dog walking back and forth across the room, turning sharply at the wall each time",
+        "a dog moving around the space, circling the furniture and setting off again, ears up",
+        "a dog on the move across the floor, head swinging from side to side as it goes",
         "a dog crossing the room and turning back, then crossing again, not stopping anywhere for long",
-        "a dog tracking up and down past the furniture, restless, unable to find a spot to settle",
+        "a dog tracking up and down past the furniture, not staying in one spot",
         "a dog on its feet and moving in loops around the room, pausing only a beat before setting off again",
     ],
     "not_touching_food": [
@@ -229,12 +229,12 @@ _SCENE_PHRASINGS = {
         "a dog picking its way across the room stiffly, keeping a leg lifted and hobbling between steps",
     ],
     "lethargic": [
-        "a dog slumped low on the floor, slow and heavy, barely shifting from one spot",
+        "a dog slumped low on the floor, slow to shift from one spot",
         "a dog lying flat and still in the middle of the room, only just lifting its head before letting it drop",
-        "a dog moving sluggishly across the floor, dull and slow, slow to react to anything around it",
-        "a dog flopped down heavily on the floor, hardly stirring, head sinking back to the ground",
-        "a dog low and loose-limbed on the rug, slow to lift its head and slow to put it back down",
-        "a dog dragging itself a short way and then sinking down again, heavy and unhurried",
+        "a dog moving slowly across the floor, slow to react to anything around it",
+        "a dog flopped down on the floor, hardly stirring, head sinking back to the ground",
+        "a dog low on the rug, slow to lift its head and slow to put it back down",
+        "a dog dragging itself a short way and then sinking down again, moving slowly",
     ],
     "drinking": [
         "a dog with its head down at the water bowl, lapping steadily at the water in the corner",
@@ -330,11 +330,15 @@ def _build_prompt(scene: str) -> str:
         "live wide-angle feed of a family's dog. Output a terse, clipped caption of "
         "what is on screen right now — the kind of low-confidence note such a camera "
         "auto-generates, not polished prose. Keep it short and variable: a bare "
-        "fragment or one or two short clauses, sometimes hedged. Stick to plainly "
-        "visible detail (posture, movement, where in the frame) and you may note "
-        "camera conditions — low light, graininess, motion in frame, a partial "
-        "glimpse, the fixed wide angle. Describe what you see, not what you guess it "
-        "means; don't diagnose or name any condition.\n\n"
+        "fragment or one or two short clauses, sometimes hedged. Report only plainly "
+        "visible detail (posture, position, whether it is moving or lying still, "
+        "where in the frame) and you may note camera conditions — low light, graininess, motion "
+        "in frame, a partial glimpse, the fixed wide angle. Report what is on "
+        "screen, NOT what it might mean: do not infer how the animal feels or "
+        "whether it is comfortable, asleep, at rest, in any distress, or whether "
+        "anything is fine or wrong, and do not assert vital signs you cannot see "
+        "(such as breathing) — reaching that judgement is the viewer's job, not "
+        "yours. Don't diagnose or name any condition.\n\n"
         f"On screen: {scene}."
     )
 

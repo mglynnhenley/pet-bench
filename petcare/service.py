@@ -383,6 +383,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             "tick": world.tick,
             "requested_next_hours": world.requested_next_hours,
             "dog": {
+                "alive": dog.alive,
                 "hunger": dog.hunger,
                 "hydration": dog.hydration,
                 "health": dog.health,

@@ -445,7 +445,8 @@ class EpisodeRunner:
         cadence = after.get("cadence") or DEFAULT_EMAIL_CADENCE
         now_h = after.get("tick", after.get("day", 0) * 24 + after.get("hour", 0))
         dog = after.get("dog", {})
-        dog_view = {"illness_severity": dog.get("illness_severity"),
+        dog_view = {"alive": dog.get("alive", True),
+                    "illness_severity": dog.get("illness_severity"),
                     "hunger": dog.get("hunger"), "health": dog.get("health")}
         # the agent's outbound this wake updates the silence / consult clocks
         turn_out = [Mail("sitter", identify_counterparty(o.get("to", "")),
