@@ -347,3 +347,297 @@ async def caption(model, windows: list[Window], rng=None) -> str:
         sentence = " ".join(sentence.split())
         lines.append(f"[{window.timestamp}] {sentence}")
     return "\n".join(lines)
+
+
+# ── clips: a real camera records SPANS of activity, not fixed snapshots ────────
+#
+# A real home camera is motion/sound triggered: it records *clips* — contiguous
+# spans where the same thing is happening — and the description you read is a
+# narrative over a span, with a duration, not a single instantaneous label. And
+# what you actually read is span-ADAPTIVE: a granular clip list if you just
+# looked, a compressed day-digest if you've been away. Because the agent picks
+# its own check-in cadence (`schedule_next`), the elapsed window varies from an
+# hour to a full day, so the renderer below scales its format to that span. The
+# underlying clip stream is cadence-independent; only how much we *compress* it
+# changes — which is exactly where a real AI camera's summary distorts.
+
+# Behaviours a motion/sound camera registers as activity (they generate events);
+# everything else (resting, lethargic, off_screen) reads as a quiet stretch.
+_ACTIVE_BEHAVIOURS = {"pacing", "limping", "drinking", "not_touching_food"}
+
+# When a digest has to compress a daypart's varied clips into one line, this is
+# the "most worth surfacing first" order — a legible symptom outranks calm.
+_DIGEST_PRIORITY = [
+    "limping", "lethargic", "not_touching_food", "pacing",
+    "drinking", "off_screen", "resting",
+]
+
+# Span-adaptive tier cut-points (hours of elapsed footage). Overridable per call
+# (and, upstream, per scenario via Config) — these are the defaults.
+LIVE_MAX_HOURS = 4      # ≤ this: raw clip list, no summarisation ("live view")
+DIGEST_MIN_HOURS = 12   # > this: segmented day digest with density stats
+
+
+@dataclass
+class Clip:
+    """A contiguous span of footage where the camera reported the same thing.
+
+    `behaviour` is the reported appearance for the span (already post-noise), or
+    None when the span was an outage (`offline`). `duration_hours` is how long
+    the activity ran; `obscured` is set if any hour in the span was a
+    partial/ambiguous view. `start_hour` is the absolute sim hour (may exceed 24)
+    used to bin the clip into a daypart; `start_ts`/`end_ts` are the "HH:MM"
+    labels shown to the agent.
+    """
+
+    start_ts: str
+    end_ts: str
+    duration_hours: int
+    behaviour: str | None
+    offline: bool = False
+    obscured: bool = False
+    start_hour: int = 0
+
+
+def _ts(hour: int) -> str:
+    return f"{hour % 24:02d}:00"
+
+
+def clips_from_rows(rows: list[dict]) -> list[Clip]:
+    """Merge consecutive per-hour tick rows into activity clips (spans).
+
+    Adjacent hours that share the same reported appearance (`camera_shown`) and
+    online/offline status collapse into one Clip with a duration; an outage
+    breaks a run. `obscured` is OR-ed across the span. Pure and deterministic —
+    this is the cadence-independent event stream the renderer summarises.
+    """
+    clips: list[Clip] = []
+    for row in rows:
+        offline = bool(row.get("camera_offline"))
+        behaviour = None if offline else row.get(
+            "camera_shown", row.get("visible_behaviour", "resting"))
+        obscured = bool(row.get("camera_obscured")) and not offline
+        hour = int(row.get("hour", 0))
+
+        prev = clips[-1] if clips else None
+        if prev is not None and prev.offline == offline and prev.behaviour == behaviour:
+            prev.end_ts = _ts(hour + 1)
+            prev.duration_hours += 1
+            prev.obscured = prev.obscured or obscured
+            continue
+        clips.append(Clip(
+            start_ts=_ts(hour), end_ts=_ts(hour + 1), duration_hours=1,
+            behaviour=behaviour, offline=offline, obscured=obscured,
+            start_hour=hour,
+        ))
+    return clips
+
+
+def feed_tier(elapsed_hours: int, *, live_max: int = LIVE_MAX_HOURS,
+              digest_min: int = DIGEST_MIN_HOURS) -> str:
+    """Pick the feed format for an elapsed span: 'live' | 'rollup' | 'digest'."""
+    if elapsed_hours <= live_max:
+        return "live"
+    if elapsed_hours > digest_min:
+        return "digest"
+    return "rollup"
+
+
+def clip_stats(clips: list[Clip]) -> dict:
+    """Code-computed event density over a span (counts, hours).
+
+    These numbers are observable metadata, NOT hidden state, so they are safe to
+    surface to the agent — but they are rendered into the FEED here, never into a
+    captioner prompt, so the no-digit prompt contract holds.
+    """
+    active = quiet = offline = events = 0
+    for c in clips:
+        if c.offline:
+            offline += c.duration_hours
+        elif c.behaviour in _ACTIVE_BEHAVIOURS:
+            active += c.duration_hours
+            events += 1
+        else:
+            quiet += c.duration_hours
+    return {"clips": len(clips), "active_hours": active, "quiet_hours": quiet,
+            "offline_hours": offline, "events": events}
+
+
+def _period_of(hour: int) -> str:
+    """Map an (absolute) sim hour to a coarse daypart for digest segmentation."""
+    h = hour % 24
+    if h < 6:
+        return "overnight"
+    if h < 12:
+        return "morning"
+    if h < 18:
+        return "afternoon"
+    return "evening"
+
+
+# Duration clauses — qualitative only (a real caption says "for a while", never
+# "for 5 hours"), so the scene stays digit-free.
+_DURATION_PHRASINGS = {
+    "short": ["on and off for a while", "for a little while", "for a spell"],
+    "long": ["for a long stretch", "for hours on end", "for a good long while"],
+}
+
+
+def _duration_clause(hours: int, rng=None) -> str:
+    if hours <= 1:
+        return ""
+    bucket = "short" if hours <= 3 else "long"
+    options = _DURATION_PHRASINGS[bucket]
+    return options[0] if rng is None else rng.choice(options)
+
+
+def describe_clip(clip: Clip, *, rng=None) -> str:
+    """Render the visible scene for one clip as a SPAN, not an instant.
+
+    Like describe_scene but folds in a qualitative duration clause so a long
+    quiet stretch reads as sustained rather than a frozen snapshot. Same leak
+    contract: no hidden-state words, illness names, or digits; deterministic when
+    rng is None (first phrasing, no camera quirk)."""
+    phrasings = _SCENE_PHRASINGS.get(clip.behaviour or "off_screen",
+                                     _SCENE_PHRASINGS["off_screen"])
+    scene = phrasings[0] if rng is None else rng.choice(phrasings)
+    clause = _duration_clause(clip.duration_hours, rng)
+    if clause:
+        scene = f"{scene}, {clause}"
+    if clip.obscured:
+        template = _OBSCURED_TEMPLATES[0] if rng is None else rng.choice(_OBSCURED_TEMPLATES)
+        scene = template.format(scene=scene)
+    if rng is not None and rng.random() < 0.5:
+        scene = f"{scene}; {rng.choice(_SCENE_QUIRKS)}"
+    return scene
+
+
+def _digest_header(elapsed_hours: int, stats: dict) -> str:
+    """The code-assembled stat line that opens a day digest (digits live here)."""
+    parts = [f"Camera digest — last ~{elapsed_hours}h",
+             f"{stats['events']} motion event(s)",
+             f"active ~{stats['active_hours']}h",
+             f"quiet ~{stats['quiet_hours']}h"]
+    if stats["offline_hours"]:
+        parts.append(f"feed down ~{stats['offline_hours']}h")
+    return ", ".join(parts) + "."
+
+
+def _rollup_lead(elapsed_hours: int, stats: dict) -> str:
+    note = (f"Since your last look (~{elapsed_hours}h): {stats['events']} motion "
+            f"event(s), {stats['active_hours']}h active / {stats['quiet_hours']}h quiet")
+    if stats["offline_hours"]:
+        note += f", {stats['offline_hours']}h feed down"
+    return note + "."
+
+
+def _period_scene(clips: list[Clip], rng=None) -> str:
+    """Compress a daypart's online clips into one representative visible scene.
+
+    Picks the most-worth-surfacing behaviour in the daypart and notes if the
+    period was varied — grounded in the real clips, still leak-safe."""
+    behaviours = [c.behaviour for c in clips if c.behaviour]
+    rep = min(behaviours,
+              key=lambda b: _DIGEST_PRIORITY.index(b)
+              if b in _DIGEST_PRIORITY else len(_DIGEST_PRIORITY))
+    phrasings = _SCENE_PHRASINGS.get(rep, _SCENE_PHRASINGS["off_screen"])
+    scene = phrasings[0] if rng is None else rng.choice(phrasings)
+    if len(set(behaviours)) > 1:
+        scene = f"{scene}, with some other moving about at times"
+    return scene
+
+
+async def render_camera_feed(
+    model,
+    clips: list[Clip],
+    elapsed_hours: int,
+    *,
+    live_max: int = LIVE_MAX_HOURS,
+    digest_min: int = DIGEST_MIN_HOURS,
+    rng=None,
+) -> str:
+    """Render the span-adaptive feed the agent reads for an elapsed window.
+
+    Format scales to `elapsed_hours` (the gap the agent itself chose):
+      • live   (≤ live_max)  — every clip captioned, with timestamps;
+      • rollup (≤ digest_min)— same, prefixed with a one-line density lead;
+      • digest (> digest_min)— a stat header + one compressed line per daypart.
+    Offline spans emit the unavailable marker with NO model call. `model` is any
+    object with `async generate(prompt) -> str`; deterministic when rng is None.
+    """
+    if not clips:
+        return ""
+    tier = feed_tier(elapsed_hours, live_max=live_max, digest_min=digest_min)
+    if tier == "digest":
+        return await _render_digest(model, clips, elapsed_hours, rng)
+    return await _render_clip_list(model, clips, tier, elapsed_hours, rng)
+
+
+async def _render_clip_list(model, clips, tier, elapsed_hours, rng) -> str:
+    lines: list[str] = []
+    if tier == "rollup":
+        lines.append(_rollup_lead(elapsed_hours, clip_stats(clips)))
+    for clip in clips:
+        if clip.offline:
+            lines.append(f"[{clip.start_ts}] {_UNAVAILABLE}")
+            continue
+        sentence = await model.generate(_build_prompt(describe_clip(clip, rng=rng)))
+        sentence = " ".join(sentence.split())
+        lines.append(f"[{clip.start_ts}] {sentence}")
+    return "\n".join(lines)
+
+
+async def render_live_snapshot(model, rows: list[dict], rng=None) -> str:
+    """The 'what's on screen right now' view — caption the latest hour ONLY.
+
+    A glance at the current moment, independent of how long the agent slept (the
+    feed covers the elapsed span; this covers just now). Offline latest hour →
+    the unavailable marker with no model call. Same leak/determinism contract."""
+    if not rows:
+        return ""
+    last = rows[-1]
+    ts = _ts(int(last.get("hour", 6)))
+    if last.get("camera_offline"):
+        return f"[{ts}] {_UNAVAILABLE}"
+    scene = describe_scene(
+        last.get("camera_shown", last.get("visible_behaviour", "resting")),
+        obscured=bool(last.get("camera_obscured")), rng=rng)
+    sentence = " ".join((await model.generate(_build_prompt(scene))).split())
+    return f"[{ts}] {sentence}"
+
+
+def events_timeline(rows: list[dict]) -> dict:
+    """The structured, prose-free clip timeline + density (no LLM, server-safe).
+
+    Turns recent tick rows into `{"events": [{time,end,duration_h,tag,obscured}],
+    "summary": <clip_stats>}`. `tag` is the reported appearance (or "offline") —
+    observable only, never a hidden field or number-bearing prose. This is the
+    cheap channel where *absence* of activity (few events) is legible, so an agent
+    can read a quiet/declining dog without paying for prose."""
+    clips = clips_from_rows(rows)
+    events = [{
+        "time": c.start_ts,
+        "end": c.end_ts,
+        "duration_h": c.duration_hours,
+        "tag": "offline" if c.offline else c.behaviour,
+        "obscured": c.obscured,
+    } for c in clips]
+    return {"events": events, "summary": clip_stats(clips)}
+
+
+async def _render_digest(model, clips, elapsed_hours, rng) -> str:
+    lines = [_digest_header(elapsed_hours, clip_stats(clips))]
+    # group clips by daypart, preserving the order each daypart first appears
+    periods: dict[str, list[Clip]] = {}
+    for clip in clips:
+        periods.setdefault(_period_of(clip.start_hour), []).append(clip)
+    for period, group in periods.items():
+        online = [c for c in group if not c.offline]
+        label = period.capitalize()
+        if not online:
+            lines.append(f"{label} — feed largely unavailable.")
+            continue
+        sentence = await model.generate(_build_prompt(_period_scene(online, rng=rng)))
+        sentence = " ".join(sentence.split())
+        lines.append(f"{label} — {sentence}")
+    return "\n".join(lines)

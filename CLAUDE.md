@@ -17,7 +17,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `petcare/config.py` | Tuning constants (spec §5.3).                               |
 | `petcare/world.py`  | `Dog`/`Order`/`Account`/`World`; hourly `advance(hours)`, `schedule_next`, `tick_log`.|
 | `petcare/service.py`| FastAPI console API (spec §4.1); `create_app(world, world_factory)`; world on `app.state`; `POST /internal/init {scenario,seed}` rebuilds the world per-sample.|
-| `petcare/camera.py` | Observable layer: `derive_visible_behaviour` (ground truth) → `apply_vision_noise` (misread/obscure) → `describe_scene` + free-form async captioner.|
+| `petcare/camera.py` | Observable layer: `derive_visible_behaviour` (ground truth) → `apply_vision_noise` (misread/obscure) → `describe_scene` + free-form async captioner. **Span-adaptive feed** (slice 13): `clips_from_rows` merges per-hour reports into activity **clips**; `render_camera_feed` scales the agent-facing format to the elapsed gap — `live` clip list / `rollup` / day **`digest`** (code-computed density stats + one line per daypart). Plus the **views ladder**: `GET /camera/live` (current moment, `render_live_snapshot`) and `GET /camera/events` (structured prose-free clip timeline + density, `events_timeline`). The agent picks its own check-in cadence.|
 | `petcare/responder.py` | Message responder: routes address→role, delegates persona/prompt to `personas.py`.|
 | `petcare/personas.py` | Email cast: each correspondent = persona + input contract + triggers; reply/inbound prompt builders.|
 | `petcare/mailflow.py` | Email cadence: `schedule_inbound` — which unsolicited mail fires per wake (pure). Event probs **compound over sim-time** so cadence-independent.|
@@ -41,7 +41,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `pet_bench.py`, `pet_api/`, `run_local.sh`, `mailhog` | shelter-MVP plumbing reference (slice-4 reuse). |
 | `AGENT.md`          | Live task list + decisions to review.                      |
 
-## Built so far (383 tests green)
+## Built so far (405 tests green)
 
 **Slice 1 + 1b — domain core, hourly.** Ground truth lives in `World` (spec
 §3.1, §3.6); the agent never sees it directly. Time is **hourly** (24 ticks/day):

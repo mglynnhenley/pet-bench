@@ -78,6 +78,7 @@ class World:
     requested_next_hours: int = 0                         # the agent's chosen sleep
     camera_transcript: str = ""                           # latest prose feed (captioner output)
     camera_history: list = field(default_factory=list)    # past transcripts
+    camera_live: str = ""                                 # 'right now' single-moment snapshot
 
     # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
     # new_world. An empty/None registry makes every dynamics hook a no-op.
@@ -175,6 +176,11 @@ class World:
         reads it at /camera/feed. Previous transcripts roll into history."""
         self.camera_transcript = text
         self.camera_history.append(text)
+
+    def set_camera_live(self, text: str) -> None:
+        """The solver pushes the current-moment snapshot here; the agent reads it
+        at /camera/live. Unlike the feed it is not historised — it's 'right now'."""
+        self.camera_live = text
 
     def set_illness(self, illness_type: str, severity: int) -> None:
         """Test/scenario helper: start an illness at a given severity band."""

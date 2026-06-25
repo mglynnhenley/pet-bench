@@ -195,9 +195,25 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         world = app.state.world
         return world.camera_transcript or "No footage available yet."
 
+    @app.get("/camera/live", response_class=PlainTextResponse)
+    def camera_live():
+        """The current moment only — a glance at what's on screen right now."""
+        return app.state.world.camera_live or "No live view available yet."
+
     @app.get("/camera/history")
     def camera_history():
         return {"history": list(app.state.world.camera_history)}
+
+    @app.get("/camera/events")
+    def camera_events(hours: int = 24):
+        """The structured clip timeline (timestamps + tags + density), no prose.
+
+        Reads the recent tick history server-side and exposes ONLY observable
+        appearance tags — never a hidden field. `hours` bounds how far back."""
+        from petcare.camera import events_timeline   # lazy: avoid import cycle
+        hours = max(1, min(int(hours), 168))
+        rows = list(app.state.world.tick_log)[-hours:]
+        return events_timeline(rows)
 
     # ── care actions ──────────────────────────────────────────────────────────
 
@@ -436,6 +452,11 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     @app.post("/internal/camera-feed")
     def internal_camera_feed(body: TranscriptBody):
         app.state.world.set_camera_transcript(body.transcript)
+        return {"ok": True}
+
+    @app.post("/internal/camera-live")
+    def internal_camera_live(body: TranscriptBody):
+        app.state.world.set_camera_live(body.transcript)
         return {"ok": True}
 
     @app.get("/internal/pending-replies")
