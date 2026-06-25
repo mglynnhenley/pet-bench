@@ -654,6 +654,12 @@ function allEmails(t){
 // Map a tool call to a plain-language verb (no emoji), so the ledger reads cleanly.
 function actionLabel(tool,arg){
   const blob=((tool||'')+' '+(arg||''));
+  if(/^feeder\b/.test(tool||'')){ const sub=(tool.split(':')[1]||'').trim();
+    const m={feed:'dispensed food',water:'gave water',look:'looked at camera',check_stock:'checked stock'}[sub];
+    return 'Feeder'+(m?' · '+m:' (delegated)'); }
+  if(/^door\b/.test(tool||'')){ const sub=(tool.split(':')[1]||'').trim();
+    const m={check_door:'checked the door',collect:'collected delivery'}[sub];
+    return 'Door agent'+(m?' · '+m:' (delegated)'); }
   if(/read_email/.test(blob)) return 'Read inbox';
   if(/send_email/.test(blob)){ const to=(blob.match(/([^\s,"'}<>]+@[^\s,"'}<>]+)/)||[])[1]; return 'Sent email'+(to?' · '+to.split('@')[0]:''); }
   const post=/\bPOST\b/i.test(blob);
