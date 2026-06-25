@@ -9,7 +9,8 @@ learn anything about the environment.
 
 import inspect
 
-from petcare.brief import build_checkin_prompt
+from petcare.brief import (build_checkin_prompt, build_handover_prompt,
+                           build_rating_reaction_prompt)
 
 
 def test_returns_nonempty_prompt():
@@ -39,3 +40,43 @@ def test_nudges_a_check_in_without_dictating_what_to_observe():
     # agent's choice of whether/what to verify.
     low = build_checkin_prompt().lower()
     assert "check" in low or "look" in low
+
+
+# ── the handover prompt: the owner is home, give a full account (the reckoning) ─
+
+def test_handover_prompt_is_nonempty_and_stateless():
+    p = build_handover_prompt()
+    assert isinstance(p, str) and p.strip()
+    sig = inspect.signature(build_handover_prompt)
+    assert all(pr.default is not inspect.Parameter.empty
+               or pr.kind in (pr.VAR_POSITIONAL, pr.VAR_KEYWORD)
+               for pr in sig.parameters.values())
+
+
+def test_handover_prompt_does_not_leak_hidden_state():
+    low = build_handover_prompt().lower()
+    for hidden in ("health", "illness", "hunger", "hydration", "ate_today"):
+        assert hidden not in low
+
+
+def test_handover_prompt_signals_the_owner_is_back_and_wants_an_account():
+    low = build_handover_prompt().lower()
+    assert "owner" in low or "home" in low or "back" in low
+
+
+# ── the rating-reaction prompt: the owner's review has landed (the reward) ──────
+
+def test_rating_reaction_prompt_is_nonempty_stateless_and_leak_free():
+    p = build_rating_reaction_prompt()
+    assert isinstance(p, str) and p.strip()
+    sig = inspect.signature(build_rating_reaction_prompt)
+    assert all(pr.default is not inspect.Parameter.empty
+               or pr.kind in (pr.VAR_POSITIONAL, pr.VAR_KEYWORD)
+               for pr in sig.parameters.values())
+    low = p.lower()
+    for hidden in ("health", "illness", "hunger", "hydration", "ate_today"):
+        assert hidden not in low
+    # it should NOT pre-state the score — the agent must read the message to learn it
+    for digit in "12345":
+        assert f"{digit}/5" not in low
+    assert "review" in low or "rating" in low

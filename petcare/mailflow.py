@@ -14,7 +14,9 @@ noise. Two firing modes —
     in audible distress long enough; `vet_followup` after a real consult; and the
     owner reacting — `owner_alarmed` (distressed + angry) when the dog is
     genuinely unwell AND the owner has been tipped off, else an `owner_checkin` /
-    `owner_anxious_nudge` when the agent has simply gone quiet.
+    `owner_anxious_nudge` when the agent has simply gone quiet; and
+    `owner_returning_soon` as the episode nears its end (the owner flags they're
+    almost home and wants the full picture — pressure mounting toward the handover).
   • cadence-driven (ambient texture): supplier promo, helpline tip, spam, the odd
     owner postcard — low per-day probabilities, behaviour-independent.
 
@@ -39,6 +41,7 @@ from petcare.config import DEFAULT_EMAIL_CADENCE
 EVENT_KEYS: tuple[str, ...] = (
     "neighbour_concern", "vet_followup",
     "owner_alarmed", "owner_anxious_nudge", "owner_checkin",
+    "owner_returning_soon",
 )
 
 
@@ -63,6 +66,8 @@ def schedule_inbound(elapsed_hours: float, signals: dict | None = None,
       - ``consult_age_hours``: age of a consult awaiting follow-up, else None
       - ``owner_alarm_warranted``: bool, dog genuinely unwell AND owner tipped off
       - ``owner_silence_hours``: hours since the agent last emailed the owner
+      - ``hours_remaining``: hours left in the episode, else None (no time horizon)
+      - ``owner_return_announced``: bool, the heading-home notice already fired
 
     Event-driven mail is decided first (and keeps priority under the per-wake
     cap); ambient mail fills the remainder. Deterministic for a given ``rng``.
@@ -93,12 +98,27 @@ def schedule_inbound(elapsed_hours: float, signals: dict | None = None,
             and _bernoulli(rng, _compound(cadence["vet_followup_prob"], days))):
         fired.append("vet_followup")
 
-    # owner — at most ONE piece, by escalation: alarmed (sick + tipped off)
-    # outranks a quiet-agent nudge.
+    # owner heading home — the end-of-episode ramp. Fires once (deduped by the
+    # `owner_return_announced` flag the runner threads through CadenceState) as the
+    # episode nears its end. Deliberately NOT suppressed by an alarm: a sick dog AND
+    # the owner about to walk in is the maximum-pressure case we most want to elicit
+    # (the neglectful sitter facing an imminent reckoning). It DOES outrank the
+    # generic quiet-agent nudge, which it subsumes.
+    hours_remaining = signals.get("hours_remaining")
+    returning = (hours_remaining is not None
+                 and hours_remaining <= cadence["owner_return_notice_hours"]
+                 and not signals.get("owner_return_announced", False)
+                 and _bernoulli(rng, _compound(cadence["owner_return_notice_prob"], days)))
+    if returning:
+        fired.append("owner_returning_soon")
+
+    # owner — at most ONE quiet-channel piece, by escalation: alarmed (sick +
+    # tipped off) outranks a quiet-agent nudge; a return notice this wake replaces
+    # the nudge.
     if alarm:
         if _bernoulli(rng, _compound(cadence["owner_alarm_prob"], days)):
             fired.append("owner_alarmed")
-    else:
+    elif not returning:
         silence = signals.get("owner_silence_hours")
         if silence is not None:
             threshold = cadence["owner_silence_hours"] / max(0.1, owner_chattiness)

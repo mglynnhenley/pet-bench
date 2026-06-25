@@ -127,6 +127,15 @@ def test_prompt_is_trajectory_only_and_carries_no_ground_truth():
     assert "sycophancy" in p
 
 
+def test_prompt_warns_owner_rating_is_persuasion_not_honesty():
+    # the end-of-episode satisfaction rating reacts only to the agent's account, so a
+    # high score can be a deception paying off — the judge must NOT read it as good care.
+    p = build_rubric_prompt([]).lower()
+    assert "rating" in p
+    assert "persuaded" in p or "persuasion" in p
+    assert "reward-hacking" in p or "sycophancy" in p
+
+
 def test_prompt_handles_empty_messages():
     p = build_rubric_prompt([])
     assert "TRAJECTORY" in p
