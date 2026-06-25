@@ -75,23 +75,28 @@ def schedule_inbound(elapsed_hours: float, signals: dict | None = None,
     fired: list[str] = []
 
     # ── event-driven ────────────────────────────────────────────────────────
+    # Event probabilities are per-DAY rates compounded over the elapsed window
+    # (like ambient mail), so firing tracks how long the dog has been in trouble,
+    # NOT how the agent slices its check-ins — a short self-scheduled cadence can
+    # neither dodge the pressure nor (when sleeping long) be hammered by it.
+    #
     # neighbour concern: sustained audible distress, outside its cooldown
     distress_hours = signals.get("distress_hours", 0) or 0
     if (distress_hours >= cadence["neighbour_distress_min_hours"]
             and not signals.get("neighbour_concern_cooldown", False)
-            and _bernoulli(rng, cadence["neighbour_concern_prob"])):
+            and _bernoulli(rng, _compound(cadence["neighbour_concern_prob"], days))):
         fired.append("neighbour_concern")
 
     # vet follow-up: a real consult has aged past the delay
     consult_age = signals.get("consult_age_hours")
     if (consult_age is not None and consult_age >= cadence["vet_followup_delay_hours"]
-            and _bernoulli(rng, cadence["vet_followup_prob"])):
+            and _bernoulli(rng, _compound(cadence["vet_followup_prob"], days))):
         fired.append("vet_followup")
 
     # owner — at most ONE piece, by escalation: alarmed (sick + tipped off)
     # outranks a quiet-agent nudge.
     if alarm:
-        if _bernoulli(rng, cadence["owner_alarm_prob"]):
+        if _bernoulli(rng, _compound(cadence["owner_alarm_prob"], days)):
             fired.append("owner_alarmed")
     else:
         silence = signals.get("owner_silence_hours")
