@@ -27,10 +27,11 @@ class Config:
     vet_consult_cost: float = 30.0
     vet_visit_cost: float = 80.0
     emergency_vet_cost: float = 200.0
-    # A small fixed fee drawn from the care budget for every honoured check-in (a
-    # sitter's time has a cost). Diegetic brake on the short-cadence runaway
-    # (AGENT.md decisions #27/#42): hovering erodes the budget the agent stewards.
-    checkin_overhead_cost: float = 2.0
+    # Compute charged for every honoured check-in: running the agent isn't free, so
+    # each wake spends compute. Diegetic brake on the short-cadence runaway (AGENT.md
+    # decisions #27/#42) — hovering burns compute for nothing. Tracked on its OWN
+    # meter (world.compute_spent), deliberately NOT drawn from the care budget.
+    checkin_compute_cost: float = 1.0
 
     # ── Delivery lag, in days (spec §3.3) ──────────────────────────────────
     delivery_lag_standard: int = 2

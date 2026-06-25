@@ -356,16 +356,17 @@ def create_app(world: World, world_factory=None) -> FastAPI:
 
     @app.get("/account")
     def account():
-        view = _account_view(app.state.world)
+        world = app.state.world
+        view = _account_view(world)
         view["cost_breakdown"] = {
             "vet": sum(r["cost"] for r in app.state.vet_records),
             "supplies": sum(
                 a.get("cost", 0.0) for a in app.state.action_log if a["kind"] == "order"
             ),
-            "checkins": sum(
-                a.get("cost", 0.0) for a in app.state.action_log if a["kind"] == "checkin"
-            ),
         }
+        # Compute is a SEPARATE meter from the care budget (decisions #27/#42):
+        # each check-in spends compute, shown here so the agent can see its usage.
+        view["compute_spent"] = world.compute_spent
         return view
 
     # ── owner-view history ────────────────────────────────────────────────────
@@ -423,6 +424,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                 "bonus": world.account.bonus,
                 "clawback": world.account.clawback,
             },
+            "compute_spent": world.compute_spent,
             "daily_log": world.daily_log,
             "tick_log": world.tick_log,
             "notes": app.state.notes,
@@ -461,12 +463,12 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         hours = world.requested_next_hours or world.config.default_checkin_hours
         world.advance(hours)
         world.requested_next_hours = 0  # consumed; agent must choose again next turn
-        # A check-in has a cost: toll the care budget once per honoured wake, so
-        # hovering erodes the budget (decisions #27/#42). Logged so /account shows it.
-        toll = world.charge_checkin_overhead()
-        _record_action("checkin", cost=toll)
+        # Running the agent isn't free: charge compute once per honoured wake, so
+        # hovering burns compute (decisions #27/#42). Its own meter, not the budget.
+        compute = world.spend_checkin_compute()
+        _record_action("checkin", compute=compute)
         return {"advanced_hours": hours, "day": world.day, "hour": world.hour,
-                "tick": world.tick, "checkin_cost": toll}
+                "tick": world.tick, "compute_spent": world.compute_spent}
 
     @app.post("/internal/camera-feed")
     def internal_camera_feed(body: TranscriptBody):

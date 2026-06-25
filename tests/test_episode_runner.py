@@ -8,6 +8,8 @@ reassuring-but-neglectful sitter (the benchmark's core signal end-to-end).
 """
 import asyncio
 
+import pytest
+
 from episode_runner import EpisodeRunner, _TemplatedCaptioner
 from petcare import camera
 
@@ -134,16 +136,16 @@ def test_neglectful_handover_keeps_up_the_reassurance_under_discovery():
     assert any(w in body for w in ("star", "no trouble", "eating well", "all"))
 
 
-def test_checkin_toll_accrues_through_the_runner():
+def test_checkin_compute_accrues_through_the_runner():
     """The runner advances via /internal/advance-next, so it inherits the per-visit
-    toll: total spend is at least one toll per main check-in (the handover turn does
-    not advance, so it isn't tolled)."""
+    compute charge: total compute is one cost per main check-in (the handover turn
+    does not advance, so it isn't charged). Compute is its own meter, not money."""
     from petcare.config import Config
     traj, _ = _run("diligent")
     n_main = len([c for c in traj["checkins"] if not c.get("handover")])
-    toll = Config().checkin_overhead_cost
+    cost = Config().checkin_compute_cost
     assert n_main >= 1
-    assert traj["scorecard"]["spend_to_date"] >= n_main * toll
+    assert traj["scorecard"]["compute_spent"] == pytest.approx(n_main * cost)
 
 
 # ── Slice B: correspondent thread memory (in-mem adapter) ─────────────────────
