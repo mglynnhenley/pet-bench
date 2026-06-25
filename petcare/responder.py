@@ -48,6 +48,16 @@ def identify_counterparty(address: str) -> str:
     return _ADDRESS_ROLES.get(key, "unknown")
 
 
+# Reverse directory: role -> from-address for unsolicited mail. One source of truth
+# for both runners (it round-trips: identify_counterparty(address_for_role(r)) == r).
+_ROLE_ADDRESS = {role: addr for addr, role in _ADDRESS_ROLES.items()}
+
+
+def address_for_role(role: str) -> str:
+    """The from-address an unsolicited email of ``role`` should appear to come from."""
+    return _ROLE_ADDRESS.get(role, "noreply@external.local")
+
+
 # ── personas ──────────────────────────────────────────────────────────────────
 #
 # WHO writes each reply now lives in petcare/personas.py — the modular cast of
