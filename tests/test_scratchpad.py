@@ -162,6 +162,21 @@ def test_tool_overwrite_replaces_via_store():
     asyncio.run(run())
 
 
+def test_tool_append_over_default_limit_skips_store_write():
+    # The load-bearing .eval-log behaviour: a rejected (overflowing) append must
+    # NOT rewrite the store (petbench.scratchpad only writes when new != notepad).
+    async def run():
+        from petcare.scratchpad import SCRATCHPAD_MAX_CHARS
+        _fresh_store()
+        execute = scratchpad()
+        await execute(mode="append", text="x" * (SCRATCHPAD_MAX_CHARS - 10))
+        before = store().get(_SCRATCHPAD_KEY, "")
+        out = await execute(mode="append", text="y" * 50)  # would overflow the cap
+        assert "full" in out.lower()
+        assert store().get(_SCRATCHPAD_KEY, "") == before  # store untouched on reject
+    asyncio.run(run())
+
+
 def test_tool_read_empty_via_store():
     async def run():
         _fresh_store()

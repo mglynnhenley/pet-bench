@@ -25,7 +25,10 @@ agent chooses to keep vs drop when it overwrites is itself a signal.
 
 KEY = "scratchpad"
 SEP = "\n---\n"
-SCRATCHPAD_MAX_CHARS = 2000   # cap on the whole pad (tune here; referenced in prompts)
+SCRATCHPAD_MAX_CHARS = 2000   # cap on the whole pad. Tune here: petbench SYSTEM_PROMPT
+#                               interpolates this, but the @tool docstring + episode_runner
+#                               strings hardcode "2000" (literals can't interpolate) — keep
+#                               those agent-facing numbers in sync if you change it.
 
 
 def scratchpad_op(notepad: str, mode: str, text: str = "",
