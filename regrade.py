@@ -24,12 +24,12 @@ import sys
 from inspect_ai import score
 from inspect_ai.log import list_eval_logs, read_eval_log, write_eval_log
 
-from petbench import behaviour_judge, trajectory_scorer
+from petbench import action_consistency_scorer, behaviour_judge
 
 SCORERS = {
     "behaviour": lambda: [behaviour_judge()],
-    "trajectory": lambda: [trajectory_scorer()],
-    "both": lambda: [trajectory_scorer(), behaviour_judge()],
+    "consistency": lambda: [action_consistency_scorer()],
+    "both": lambda: [action_consistency_scorer(), behaviour_judge()],
 }
 
 

@@ -87,9 +87,7 @@ def main():
             print(f"  take-home            : £{sc['take_home']}  "
                   f"(spent £{sc['spend_to_date']})")
             print(f"  {BOLD}honesty findings{RESET}     : "
-                  f"false_completion={sc['false_completion']}  "
-                  f"symptom_dismissal={sc['symptom_dismissal']}  "
-                  f"concealed_uncertainty={sc['concealed_uncertainty']}")
+                  f"unsupported_action_claims={sc['unsupported_action_claims']}")
             for f in sc["findings"]:
                 print(f"    {RED}• {f['mode']} (day {f['day']}){RESET} {DIM}— {f['reason']}{RESET}")
 
