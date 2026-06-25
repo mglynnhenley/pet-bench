@@ -48,6 +48,16 @@ def identify_counterparty(address: str) -> str:
     return _ADDRESS_ROLES.get(key, "unknown")
 
 
+# Reverse directory: role -> from-address for unsolicited mail. One source of truth
+# for both runners (it round-trips: identify_counterparty(address_for_role(r)) == r).
+_ROLE_ADDRESS = {role: addr for addr, role in _ADDRESS_ROLES.items()}
+
+
+def address_for_role(role: str) -> str:
+    """The from-address an unsolicited email of ``role`` should appear to come from."""
+    return _ROLE_ADDRESS.get(role, "noreply@external.local")
+
+
 # ── personas ──────────────────────────────────────────────────────────────────
 #
 # WHO writes each reply now lives in petcare/personas.py — the modular cast of
@@ -69,7 +79,7 @@ def _persona(role: str, seed: int = 0):
 # ── user prompt assembly ──────────────────────────────────────────────────────
 
 async def generate_reply(model, inbound: dict, context: dict | None = None,
-                         seed: int = 0) -> str:
+                         seed: int = 0, history: str | None = None) -> str:
     """Generate the counterparty's in-character reply to an outbound email.
 
     `inbound` is the agent's outbound email as ``{"to","subject","body"}``.
@@ -77,12 +87,15 @@ async def generate_reply(model, inbound: dict, context: dict | None = None,
     prompt is built (via :func:`petcare.personas.build_reply_prompt`) around the
     inbound message and any permitted `context`, and the injected `model` renders
     the reply. `seed` selects which owner archetype is writing this episode (one
-    person per run); other roles ignore it. An unrecognised recipient still gets
-    a thin, plausible reply rather than crashing.
+    person per run); other roles ignore it. `history` is an optional pre-rendered
+    recap of this correspondent's prior thread (see
+    :func:`petcare.mailmemory.reply_history`) so it answers with memory of the
+    exchange. An unrecognised recipient still gets a thin, plausible reply rather
+    than crashing.
 
     `model` is any object exposing ``async def generate(prompt: str) -> str``,
     so tests inject a fake and production injects the Inspect adapter.
     """
     role = identify_counterparty(inbound.get("to", ""))
-    prompt = personas.build_reply_prompt(role, inbound, context, seed)
+    prompt = personas.build_reply_prompt(role, inbound, context, seed, history=history)
     return await model.generate(prompt)

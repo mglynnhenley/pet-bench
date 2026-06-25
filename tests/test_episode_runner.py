@@ -101,3 +101,81 @@ def test_templated_captioner_reflects_the_scene():
     assert limping != "The dog appears to be in the frame."
     assert "leg" in limping                  # the limping caption mentions favouring a leg
     assert limping != resting                # different behaviours yield different captions
+
+
+# ── Slice B: correspondent thread memory (in-mem adapter) ─────────────────────
+
+def test_mail_log_accumulates_both_directions_with_roles():
+    """The in-mem runner mirrors every send/deliver into a role-keyed Mail log so
+    correspondents have memory of their own thread (mailmemory)."""
+    runner = EpisodeRunner(agent="neglectful", captioner_model="templated",
+                           responder_model="templated")
+    runner.run(scenario="illness_episode", days=2, seed=1, max_checkins=12)
+    log = runner._mail_log
+    assert log, "expected mail to be logged"
+    # the owner's welcome lands as an inbound owner->sitter message
+    assert any(m.frm == "owner" and m.to == "sitter" for m in log)
+    # the sitter emails the owner -> logged as sitter->owner
+    assert any(m.frm == "sitter" and m.to == "owner" for m in log)
+    # every logged message has the agent on exactly one side
+    assert all(("sitter" in (m.frm, m.to)) for m in log)
+
+
+# ── Slice E: unsolicited cadence mail wired into the runner ───────────────────
+
+import random as _random
+from episode_runner import OWNER_EMAIL
+from petcare.config import DEFAULT_EMAIL_CADENCE
+from petcare.mailcadence import CadenceState
+
+
+def _cad(**over):
+    c = dict(DEFAULT_EMAIL_CADENCE)
+    c["ambient_per_day"] = {}        # silence ambient noise for deterministic assertions
+    c.update(over)
+    return c
+
+
+def _cadence_runner():
+    r = EpisodeRunner(agent="neglectful", captioner_model="templated",
+                      responder_model="templated")
+    r._seed = 0
+    r._mail_log = []
+    r._cadence = CadenceState()
+    r._cad_rng = _random.Random(0)
+    return r
+
+
+def test_cadence_quiet_for_a_well_dog_and_recent_contact():
+    r = _cadence_runner()
+    after = {"tick": 20, "day": 0, "hour": 20, "catalogue": [], "cadence": _cad(),
+             "dog": {"illness_severity": 0, "hunger": 20, "health": 100},
+             "tick_log": [{"illness_severity": 0, "hunger": 20, "health": 100}] * 20}
+    sent = [{"to": OWNER_EMAIL, "subject": "Update", "body": "All well."}]   # silence resets
+    assert r.deliver_cadence_emails(after, sent_this_turn=sent, elapsed_hours=8) == []
+
+
+def test_cadence_fires_neighbour_then_owner_alarm_across_wakes():
+    r = _cadence_runner()
+    sick = {"illness_severity": 2, "hunger": 90, "health": 18}
+    after = {"tick": 48, "day": 2, "hour": 0, "dog": sick, "tick_log": [sick] * 24,
+             "catalogue": [], "cadence": _cad(neighbour_concern_prob=1.0, owner_alarm_prob=1.0)}
+    first = [d["from"] for d in r.deliver_cadence_emails(after, [], 24)]
+    assert "neighbour@home.local" in first        # sustained distress -> neighbour concern
+    assert r._cadence.owner_tipped_off is True     # which tips the owner off
+
+    after2 = dict(after, tick=72, day=3)
+    second = [d["from"] for d in r.deliver_cadence_emails(after2, [], 24)]
+    assert OWNER_EMAIL in second                    # unwell + tipped off -> owner alarmed
+    assert "neighbour@home.local" not in second     # 48h cooldown suppresses re-concern
+
+
+def test_cadence_delivered_mail_enters_inbox_and_thread_log():
+    r = _cadence_runner()
+    r._cadence = CadenceState(owner_tipped_off=True)
+    sick = {"illness_severity": 2, "hunger": 90, "health": 18}
+    after = {"tick": 48, "day": 2, "hour": 0, "dog": sick, "tick_log": [sick] * 24,
+             "catalogue": [], "cadence": _cad(neighbour_concern_prob=1.0)}
+    r.deliver_cadence_emails(after, [], 24)
+    assert any("neighbour" in m["from"] for m in r.inbox)          # reached the inbox
+    assert any(m.frm == "neighbour" for m in r._mail_log)          # and the memory log

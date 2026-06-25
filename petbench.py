@@ -26,7 +26,12 @@ from inspect_ai.tool import bash, tool
 from petcare import personas
 from petcare.brief import build_checkin_prompt
 from petcare.camera import build_windows, caption
-from petcare.responder import generate_reply, identify_counterparty
+from petcare.config import DEFAULT_EMAIL_CADENCE
+from petcare.mailcadence import CadenceState, compute_signals, inbound_view, note_fired
+from petcare.mailflow import schedule_inbound
+from petcare.mailmemory import inbound_history, reply_history
+from petcare.mailtypes import Mail
+from petcare.responder import address_for_role, generate_reply, identify_counterparty
 from petcare.scoring_behaviour import behaviour_judge
 from petcare.scratchpad import SCRATCHPAD_MAX_CHARS
 
@@ -295,14 +300,33 @@ async def _deliver_arrivals(model, before_orders: list, after_orders: list) -> N
         _deliver("supplier@petcare.local", SITTER_EMAIL, subject, body)
 
 
-async def _deliver_replies(model, replied: set) -> None:
+def _role_of(addr: str) -> str:
+    """The agent ('sitter') for its own address, else the counterparty role."""
+    return "sitter" if SITTER_EMAIL in (addr or "") else identify_counterparty((addr or "").strip())
+
+
+def _mail_log_from_mailhog(items: list) -> list[Mail]:
+    """Normalize MailHog's whole message store into a role-keyed thread log (oldest
+    first), so correspondent memory is computed identically to the in-mem runner."""
+    log: list[Mail] = []
+    for m in sorted(items, key=lambda x: x.get("Created", "")):
+        h = m["Content"]["Headers"]
+        log.append(Mail(_role_of(h.get("From", [""])[0]), _role_of(h.get("To", [""])[0]),
+                        h.get("Subject", [""])[0], m["Content"]["Body"]))
+    return log
+
+
+async def _deliver_replies(model, replied: set, seed: int = 0) -> None:
     """The message responder: reply in-character to anything the agent emailed
-    this turn. Grounded per counterparty so hidden state can't leak (responder.py)."""
+    this turn, with memory of the prior thread (mailmemory). Grounded per
+    counterparty so hidden state can't leak (responder.py)."""
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{MAILHOG_API}/api/v2/messages?limit=50")
         full = (await client.get(f"{PET_API}/internal/state/full")).json()
     view = _supplier_view(full)
-    for m in r.json().get("items", []):
+    items = r.json().get("items", [])
+    mail_log = _mail_log_from_mailhog(items)
+    for m in items:
         if m["ID"] in replied:
             continue
         h = m["Content"]["Headers"]
@@ -312,11 +336,62 @@ async def _deliver_replies(model, replied: set) -> None:
         replied.add(m["ID"])
         to = h.get("To", [""])[0].strip()
         subject = h.get("Subject", [""])[0]
-        ctx = personas.context_for(identify_counterparty(to), view)
+        role = identify_counterparty(to)
+        ctx = personas.context_for(role, view)
+        history = reply_history(role, mail_log)
         reply = await generate_reply(model, {"to": to, "subject": subject,
-                                             "body": m["Content"]["Body"]}, context=ctx)
+                                             "body": m["Content"]["Body"]},
+                                     context=ctx, seed=seed, history=history)
         rsubj = subject if subject.startswith("Re:") else f"Re: {subject}"
         _deliver(from_addr=to or OWNER_EMAIL, to=SITTER_EMAIL, subject=rsubj, body=reply)
+
+
+def _outbound_clocks(state: CadenceState, sent_emails: list) -> None:
+    """Set last owner/vet outbound hours from the authoritative sent-email log
+    (day-granularity; MailHog carries no sim-time). The petbench analogue of
+    mailcadence.note_outbound — the thin transport difference vs episode_runner."""
+    for e in sent_emails:
+        role = identify_counterparty(e.get("to", ""))
+        h = float(e.get("day", 0)) * 24
+        if role == "owner":
+            state.last_owner_outbound_h = h
+        elif role == "vet":
+            state.last_vet_outbound_h = h
+
+
+async def _deliver_cadence(model, state: CadenceState, cad_rng, after: dict,
+                           seed: int, elapsed_hours: float) -> None:
+    """Fire this wake's unsolicited mail (mailflow + mailcadence) into MailHog —
+    owner check-in/nudge/alarm, neighbour concern, vet follow-up, ambient. Frequency
+    is the behavioural readout (quiet inbox for a caring sitter + well dog; escalating
+    pressure otherwise). Each email's view is the role's PERMITTED context only, so no
+    hidden state reaches a prompt."""
+    cadence = after.get("cadence") or DEFAULT_EMAIL_CADENCE
+    now_h = after.get("tick", after.get("day", 0) * 24 + after.get("hour", 0))
+    dog = after.get("dog", {})
+    dog_view = {"illness_severity": dog.get("illness_severity"),
+                "hunger": dog.get("hunger"), "health": dog.get("health")}
+    _outbound_clocks(state, after.get("sent_emails", []))
+    signals = compute_signals(state, now_h, after.get("tick_log", []), dog_view, cadence)
+    chattiness = personas.select_owner(seed).chattiness
+    fired = schedule_inbound(elapsed_hours or 0, signals, cadence,
+                             owner_chattiness=chattiness, rng=cad_rng)
+    note_fired(state, fired, now_h)
+    if not fired:
+        return
+    async with httpx.AsyncClient() as client:
+        items = (await client.get(f"{MAILHOG_API}/api/v2/messages?limit=50")).json().get("items", [])
+    mail_log = _mail_log_from_mailhog(items)
+    for key in fired:
+        role = personas.TRIGGERS[key].role
+        view = inbound_view(key, dog_view, after.get("catalogue"), mail_log)
+        history = inbound_history(role, mail_log)
+        try:
+            em = await personas.generate_inbound(model, key, view=view, seed=seed, history=history)
+            subject, body = em["subject"], em["body"]
+        except Exception:
+            subject, body = personas.inbound_subject(key), "(message unavailable)"
+        _deliver(address_for_role(role), SITTER_EMAIL, subject, body)
 
 
 # ── Camera captioner adapter (Inspect model → camera.caption's interface) ─────
@@ -394,7 +469,11 @@ def petbench_loop():
         scenario = meta.get("scenario", "baseline")
         seed = meta.get("seed", 0)
         captioner = _InspectCaptioner(get_model())
-        cam_rng = random.Random()   # varies which phrasing of each scene the camera uses
+        # Seed both streams from (scenario, seed) so a sample is deterministic: which
+        # camera phrasing is used, and which unsolicited mail fires.
+        cam_rng = random.Random(f"camera:{scenario}:{seed}")
+        cad_rng = random.Random(f"cadence:{scenario}:{seed}")
+        cadence_state = CadenceState()
         replied: set = set()
 
         # Initialise the server-side world for this sample's scenario+seed. Best
@@ -431,7 +510,10 @@ def petbench_loop():
             await _deliver_arrivals(captioner, before.get("orders", []),
                                     after.get("orders", []))
             # in-character replies to the agent's outbound mail, ready for next turn
-            await _deliver_replies(captioner, replied)
+            await _deliver_replies(captioner, replied, seed=seed)
+            # unsolicited mail for this wake (owner/neighbour/vet/ambient), if any
+            await _deliver_cadence(captioner, cadence_state, cad_rng, after, seed,
+                                   adv.get("advanced_hours", 0))
 
             if after.get("day", 0) >= episode_length:
                 # Persist the full ground-truth world into the Inspect store so the

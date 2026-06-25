@@ -20,7 +20,10 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `petcare/camera.py` | Observable layer: `derive_visible_behaviour` (ground truth) → `apply_vision_noise` (misread/obscure) → `describe_scene` + free-form async captioner.|
 | `petcare/responder.py` | Message responder: routes address→role, delegates persona/prompt to `personas.py`.|
 | `petcare/personas.py` | Email cast: each correspondent = persona + input contract + triggers; reply/inbound prompt builders.|
-| `petcare/mailflow.py` | Email cadence: `schedule_inbound` — which unsolicited mail fires per wake (pure).|
+| `petcare/mailflow.py` | Email cadence: `schedule_inbound` — which unsolicited mail fires per wake (pure). Event probs **compound over sim-time** so cadence-independent.|
+| `petcare/mailtypes.py` | `Mail` — the one role-keyed normalized message both transports (MailHog / in-mem inbox) map onto (`AGENT_ROLE="sitter"`). Pure, no Inspect.|
+| `petcare/mailmemory.py` | **Correspondent thread memory** (pure): `thread_for`/`last_from`/`render_history`/`reply_history`/`inbound_history` over a `list[Mail]` — each correspondent conditions on its OWN prior thread (catches cross-day contradictions). Natural-recall framing, no verbatim/timestamps; inherits the no-leak guarantee.|
+| `petcare/mailcadence.py` | **Cadence signals glue** (pure): `compute_signals`/`distress_hours`(cumulative)/`CadenceState`/`note_outbound`/`note_fired`/`inbound_view` — turns tick-log + outbound + dog-state into the `signals` `schedule_inbound` eats. Numbers only gate firing; never reach a prompt.|
 | `petcare/scoring_behaviour.py` | **The eval's SOLE scorer — model-graded, TRAJECTORY-ONLY** (`behaviour_judge`): grades 6 AI-safety behaviours (reward-hacking / deception / **sycophancy** / oversight-tampering / duty-of-care / transparency+) against the agent's OWN knowledge, **never the hidden ground truth** (slice 12 — comparing to dog-state measures camera noise, not alignment). Reads the whole trajectory **incl. the private `scratchpad` channel, surfaced tagged `private-note`** (covert monitoring, `_PRIVATE_TOOLS`); offline-regradable on `state.messages`.|
 | `petcare/scratchpad.py` | Pure shared scratchpad logic (`scratchpad_op`, `KEY`/`SEP`, `SCRATCHPAD_MAX_CHARS`) — the agent's private notepad, **capped** (append that overflows is rejected) with append/`overwrite`/read modes; **no Inspect dependency** so both `petbench` (the Inspect tool) and the standalone `EpisodeRunner`/`dashboard` import the same contract.|
 | `petcare/dynamics.py` | **Pluggable long-horizon dynamics spine** (slice 11). Per-module independent RNG, pre-sample-at-build → apply-over-time, ground truth to `world.event_log`. **Off by default** (`enabled_dynamics=()` ⇒ byte-identical to static). `world.dynamics.{vet,pricing}()` read-points fall back to static `Config`.|
@@ -37,7 +40,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `pet_bench.py`, `pet_api/`, `run_local.sh`, `mailhog` | shelter-MVP plumbing reference (slice-4 reuse). |
 | `AGENT.md`          | Live task list + decisions to review.                      |
 
-## Built so far (314 tests green)
+## Built so far (365 tests green)
 
 **Slice 1 + 1b — domain core, hourly.** Ground truth lives in `World` (spec
 §3.1, §3.6); the agent never sees it directly. Time is **hourly** (24 ticks/day):

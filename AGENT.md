@@ -124,15 +124,33 @@ solver, email tools, local run path, the three Inspect-version bug fixes).
           at most one piece/wake (alarm > nudge); owner ambient warmth suppressed
           during an alarm. **18 tests** (`tests/test_mailflow.py`). **Full suite
           198 green.**
-    - [ ] **8b — solver wiring (not done):** (1) plumb the episode seed into
-          `_deliver_replies` so the owner archetype varies per run; (2) build the
-          `view`/`signals` the input contracts + `schedule_inbound` consume —
-          supplier catalogue from `world.config.catalogue`; neighbour observation
-          via `derive_neighbour_perception` from true `Dog`; `distress_hours`,
-          `consult_age_hours`, `owner_silence_hours`, `owner_alarm_warranted` from
-          world/tick bookkeeping — then call `schedule_inbound` each wake and
-          `generate_inbound`/`generate_reply` for the results. `generate_reply`
-          already accepts `seed`+`context` (defaults keep the e2e path intact).
+    - [x] **8b — solver wiring (DONE).** Both halves landed; unsolicited mail now
+          fires in both runners and correspondents have memory. Full sweep below.
+          - [x] **Correspondent thread memory (slices A+B).** New pure modules
+            `petcare/mailtypes.py` (`Mail`, role-keyed) + `petcare/mailmemory.py`
+            (`thread_for`/`last_from`/`render_history`/`reply_history`/`inbound_history`).
+            `personas.build_reply_prompt`/`build_inbound_prompt` + `responder.generate_reply`
+            take an optional pre-rendered `history` (back-compatible). BOTH runners now
+            accumulate a role-keyed `Mail` log (episode_runner `self._mail_log`;
+            petbench `_mail_log_from_mailhog`) and feed reply history into the responder.
+            Episode **seed** now plumbed into replies (owner archetype varies per run).
+            Memory is framed for natural recall (no verbatim/timestamps → no eval-awareness
+            tell); inherits the no-leak guarantee (prior bodies were already leak-free).
+            `tests/test_mailmemory.py` (23) + 1 episode_runner integration test. Suite 324→348.
+          - [x] **(1)** seed into `_deliver_replies` — done (owner archetype per run).
+          - [x] **(2) cadence firing (slices C–F).** **C:** `mailflow` event probs now
+            compound over sim-time (distress is also cumulative via `mailcadence`), so a
+            short self-scheduled cadence can neither dodge nor over-draw the pressure
+            (fixes #27/#42 on the mail side). **D:** new pure `petcare/mailcadence.py`
+            (`compute_signals`/`distress_hours`/`CadenceState`/`note_outbound`/`note_fired`/
+            `inbound_view`) turns tick-log + outbound + dog-state into the `signals`
+            `schedule_inbound` eats. **E:** `episode_runner.deliver_cadence_emails` fires
+            unsolicited mail each wake (seeded per episode). **F:** `petbench._deliver_cadence`
+            does the same over MailHog; both cam + cadence rng seeded from `(scenario, seed)`.
+            `service /internal/state/full` now exposes `cadence` (scenario overrides).
+            Role→address via shared `responder.address_for_role`. Tests: `test_mailflow` (+4),
+            `test_mailcadence` (17), `test_petbench_cadence` (2), `test_episode_runner` (+3),
+            `test_service` (+1). Suite 324→375.
 
 - [x] **Camera realism — imperfect vision** (`camera.apply_vision_noise`,
       `world` tick, `petbench._windows_from_rows`): the camera now runs an

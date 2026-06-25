@@ -38,7 +38,13 @@ import urllib.request
 from petcare import personas
 from petcare.brief import build_checkin_prompt
 from petcare.camera import _SCENE_PHRASINGS, build_windows, caption
-from petcare.responder import generate_reply, identify_counterparty
+from petcare.config import DEFAULT_EMAIL_CADENCE
+from petcare.mailcadence import (CadenceState, compute_signals, inbound_view,
+                                 note_fired, note_outbound)
+from petcare.mailflow import schedule_inbound
+from petcare.mailmemory import inbound_history, reply_history
+from petcare.mailtypes import Mail
+from petcare.responder import address_for_role, generate_reply, identify_counterparty
 from petcare.scratchpad import scratchpad_op
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -234,6 +240,10 @@ class EpisodeRunner:
         self.client = None
         self.inbox: list[dict] = []     # in-memory mailbox: {id, from, subject, body, read}
         self._outbox: list[dict] = []   # outbound awaiting a counterparty reply
+        self._mail_log: list[Mail] = [] # full role-keyed thread, both directions (mailmemory)
+        self._cadence = CadenceState()  # cross-wake cadence bookkeeping (mailcadence)
+        self._cad_rng = random.Random(0)  # which unsolicited mail fires (seeded per episode)
+        self._seed = 0                  # episode seed: selects the owner archetype
         self._scratchpad = ""           # the agent's private notepad (see petcare.scratchpad)
         self._mid = 0
         self._cam_rng = random.Random()  # varies which phrasing of each scene the camera uses
@@ -305,6 +315,8 @@ class EpisodeRunner:
         self._mid += 1
         self.inbox.append({"id": f"{self._mid:04d}", "from": frm, "subject": subject,
                            "body": body, "read": False})
+        # mirror into the role-keyed thread log so correspondents have memory
+        self._mail_log.append(Mail(identify_counterparty(frm), "sitter", subject, body))
 
     # ── agent tools (model path) ────────────────────────────────────────────────
     def exec_tool(self, name, args):
@@ -347,6 +359,8 @@ class EpisodeRunner:
         except Exception:
             pass
         self._outbox.append({"to": to, "subject": subject, "body": body})
+        self._mail_log.append(
+            Mail("sitter", identify_counterparty(to), subject, body, sim_hour=float(day) * 24))
         return f"Message sent to {to}."
 
     # ── responder: reply in-character to this turn's outbound mail ───────────────
@@ -357,9 +371,12 @@ class EpisodeRunner:
         model = self._responder()
         view = self._supplier_view(self.get("/internal/state/full"))
         for out in self._outbox:
-            ctx = personas.context_for(identify_counterparty(out.get("to", "")), view)
+            role = identify_counterparty(out.get("to", ""))
+            ctx = personas.context_for(role, view)
+            history = reply_history(role, self._mail_log)
             try:
-                reply = asyncio.run(generate_reply(model, out, context=ctx))
+                reply = asyncio.run(generate_reply(model, out, context=ctx,
+                                                   seed=self._seed, history=history))
             except Exception:
                 reply = "Thank you for your message."
             subj = out["subject"]
@@ -412,6 +429,47 @@ class EpisodeRunner:
             self._deliver_to_inbox("supplier@petcare.local", subject, body)
             delivered.append({"from": "supplier@petcare.local",
                               "subject": subject, "body": body})
+        return delivered
+
+    # ── cadence: fire unsolicited mail for this wake (mailflow + mailcadence) ─────
+    def deliver_cadence_emails(self, after, sent_this_turn, elapsed_hours):
+        """Decide + deliver this wake's unsolicited mail (owner check-in/nudge/alarm,
+        neighbour concern, vet follow-up, ambient promo/spam). Frequency is a
+        behavioural readout: a caring, communicative sitter with a well dog sees a
+        quiet inbox; a neglectful/silent one sees escalating pressure. Each email's
+        context is the role's PERMITTED view only — no hidden state reaches a prompt."""
+        cadence = after.get("cadence") or DEFAULT_EMAIL_CADENCE
+        now_h = after.get("tick", after.get("day", 0) * 24 + after.get("hour", 0))
+        dog = after.get("dog", {})
+        dog_view = {"illness_severity": dog.get("illness_severity"),
+                    "hunger": dog.get("hunger"), "health": dog.get("health")}
+        # the agent's outbound this wake updates the silence / consult clocks
+        turn_out = [Mail("sitter", identify_counterparty(o.get("to", "")),
+                         o.get("subject", ""), o.get("body", "")) for o in sent_this_turn]
+        note_outbound(self._cadence, turn_out, now_h)
+        signals = compute_signals(self._cadence, now_h, after.get("tick_log", []),
+                                  dog_view, cadence)
+        chattiness = personas.select_owner(self._seed).chattiness
+        fired = schedule_inbound(elapsed_hours or 0, signals, cadence,
+                                 owner_chattiness=chattiness, rng=self._cad_rng)
+        note_fired(self._cadence, fired, now_h)
+
+        delivered = []
+        model = self._responder()
+        catalogue = after.get("catalogue")
+        for key in fired:
+            role = personas.TRIGGERS[key].role
+            view = inbound_view(key, dog_view, catalogue, self._mail_log)
+            history = inbound_history(role, self._mail_log)
+            try:
+                em = asyncio.run(personas.generate_inbound(
+                    model, key, view=view, seed=self._seed, history=history))
+                subject, body = em["subject"], em["body"]
+            except Exception:
+                subject, body = personas.inbound_subject(key), "(message unavailable)"
+            frm = address_for_role(role)
+            self._deliver_to_inbox(frm, subject, body)
+            delivered.append({"from": frm, "subject": subject, "body": body})
         return delivered
 
     # ── camera: caption the elapsed footage, push it to the console ──────────────
@@ -562,6 +620,10 @@ class EpisodeRunner:
             if on_event:
                 on_event(ev)
 
+        self._seed = seed
+        self._cadence = CadenceState()
+        self._cad_rng = random.Random(seed)   # deterministic cadence per episode seed
+        self._cam_rng = random.Random(seed)   # deterministic camera phrasing per episode seed
         self.start_server(scenario, seed)
         try:
             meta = {"scenario": scenario, "days": days, "agent": self.agent, "seed": seed,
@@ -623,7 +685,10 @@ class EpisodeRunner:
                 # (the agent's only arrival signal besides the stock figures)
                 arrival_inbound = self.deliver_arrival_emails(
                     before.get("orders", []), after.get("orders", []))
-                pending_inbound = arrival_inbound + self.run_responder()
+                replies = self.run_responder()
+                cadence_inbound = self.deliver_cadence_emails(
+                    after, sent_this_turn, adv.get("advanced_hours", 0))
+                pending_inbound = arrival_inbound + replies + cadence_inbound
 
                 dog = after.get("dog", {})
                 # the dog's observable appearance at the end of this interval — the
