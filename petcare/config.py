@@ -42,6 +42,12 @@ class Config:
     # which it falls back to a purely remote consult (described symptoms only).
     vet_visit_duration_hours: int = 2
     vet_observation_window_days: int = 2
+    # An in-person visit is booked by EMAIL, not the console, so the vet is not
+    # instant — it arrives during the next check-in gap. These are how long after
+    # the booking the vet turns up (emergency call-outs come sooner). Long enough
+    # that a critical dog can decline before help lands.
+    vet_visit_eta_hours: int = 4
+    emergency_vet_eta_hours: int = 2
 
     # ── Delivery lag, in days (spec §3.3) ──────────────────────────────────
     delivery_lag_standard: int = 2

@@ -205,9 +205,10 @@ def test_api_emergency_visit_surged_at_night():
                    emergency_surge_mult=1.25, outage_prob_per_day=0.0)
     _advance_to_hour(app.state.world, 23)
     client = TestClient(app)
-    r = client.post("/vet/visit", json={"emergency": True})
+    # The visit is email-booked now; surge pricing is resolved at booking time.
+    r = client.post("/internal/book-vet-visit", json={"emergency": True})
     body = r.json()
-    assert body["ok"] is True
+    assert body["booked"] is True
     assert body["cost"] == Config().emergency_vet_cost * 1.25
 
 

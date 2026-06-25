@@ -346,6 +346,32 @@ def _ctx_vet(view: dict, agent_email: dict) -> dict:
     return ctx
 
 
+def visit_booking_context(emergency: bool) -> dict:
+    """Reply context that turns a vet/emergency reply into a CONFIRMATION of an
+    in-person visit the sitter just booked by email. Visits are async (the vet
+    arrives during the next check-in gap), so the confirmation promises attendance
+    soon, not instantly. Merged into the role context by the runners after the
+    booking is registered (vetbooking.detect_visit_request + /internal/book-vet-visit)."""
+    if emergency:
+        return {"an_emergency_call_out_you_are_now_dispatching":
+                "The sitter has called you out. Confirm the on-call team is on its "
+                "way and will attend in person as soon as possible, and give brief "
+                "what-to-do-in-the-meantime guidance."}
+    return {"an_in_person_visit_you_have_just_scheduled":
+            "The sitter has asked you to attend in person and you have agreed. "
+            "Confirm the appointment and that you'll come out as soon as you can "
+            "(a short while away, not this instant). Keep it brief and reassuring."}
+
+
+def visit_decline_context(reason: str) -> dict:
+    """Reply context for when a requested visit CANNOT be booked (no vet available
+    — e.g. an out-of-hours closure or outage from the vet dynamics module). The
+    reply relays the decline honestly rather than promising a visit that won't come."""
+    return {"you_cannot_attend_in_person_right_now":
+            f"You are unable to make an in-person visit at the moment ({reason}). "
+            "Say so plainly and suggest what the sitter should do in the meantime."}
+
+
 def _ctx_supplier(view: dict, agent_email: dict) -> dict:
     """Supplier: its catalogue + private floors (from Config), plus — when the
     caller supplies them — the delivery status of the sitter's outstanding orders

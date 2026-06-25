@@ -146,19 +146,24 @@ def test_set_condition_endpoint_steers_the_dog(client, world):
 
 
 def test_emergency_visit_stabilises_a_critical_dog(client, world):
+    # The visit is booked by email now (the runner posts /internal/book-vet-visit);
+    # the emergency vet arrives during the advance and stabilises the dog.
     world.set_illness("gi_upset", 3)
     world.dog.health = 5.0
-    r = client.post("/vet/visit", json={"emergency": True})
-    body = r.json()
-    assert body.get("ok") is True
+    r = client.post("/internal/book-vet-visit", json={"emergency": True})
+    assert r.json()["booked"] is True
+    client.post("/care/schedule-next", json={"hours": world.config.emergency_vet_eta_hours})
+    client.post("/internal/advance-next")
     assert world.dog.health > world.config.critical_health_threshold
 
 
 def test_routine_visit_does_not_treat(client, world):
     world.set_illness("gi_upset", 3)
     world.dog.health = 5.0
-    client.post("/vet/visit", json={"emergency": False})
-    assert world.dog.health == 5.0          # assessment only, no stabilisation
+    client.post("/internal/book-vet-visit", json={"emergency": False})
+    client.post("/care/schedule-next", json={"hours": world.config.vet_visit_eta_hours})
+    client.post("/internal/advance-next")
+    assert world.dog.illness_severity == 3   # assessment only, no stabilisation
 
 
 # ── the authored scenario ─────────────────────────────────────────────────────

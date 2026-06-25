@@ -83,6 +83,10 @@ class World:
     death_event: dict | None = None                       # set once if Buddy dies (soft terminal)
     vet_present_hours: int = 0                             # hours a vet is still on site (camera shows them)
     compute_spent: float = 0.0                            # compute charged across honoured check-ins
+    # A vet VISIT is booked by email, so it arrives asynchronously: `request_vet_visit`
+    # registers a pending visit and the hourly tick lands it at its ETA.
+    _pending_vet_visit: dict | None = None                 # {arrival_tick, emergency, cost}
+    vet_visits_landed: list = field(default_factory=list)  # visits that have arrived (cost goes on record)
 
     # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
     # new_world. An empty/None registry makes every dynamics hook a no-op.
@@ -253,6 +257,37 @@ class World:
                                      self.config.vet_visit_duration_hours)
         return self.emergency_treat() if emergency else False
 
+    def request_vet_visit(self, emergency: bool, eta_hours: int, cost: float) -> int:
+        """Book an in-person vet visit (the agent emails the vet rather than using
+        the console). The vet is NOT instant — it arrives `eta_hours` from now, so
+        the tick lands it during a later sleep window (`_land_due_vet_visit`). If a
+        visit is already pending, the one arriving SOONER wins (an emergency booked
+        after a routine call still lands first). Returns the arrival tick."""
+        arrival = self.tick + int(eta_hours)
+        booking = {"arrival_tick": arrival, "emergency": emergency, "cost": cost}
+        pending = self._pending_vet_visit
+        if pending is None or arrival <= pending["arrival_tick"]:
+            self._pending_vet_visit = booking
+        return self._pending_vet_visit["arrival_tick"]
+
+    def _land_due_vet_visit(self) -> None:
+        """If a booked vet has reached its ETA, land it: a vet is now on site (shows
+        on the camera via `vet_present_hours`), an emergency stabilises a critical
+        dog, the cost is charged, and the visit goes on record (`vet_visits_landed`)
+        so the vet's later correspondence is grounded. Runs BEFORE the mortality
+        clock so a timely emergency arrival can still save the dog this hour."""
+        pending = self._pending_vet_visit
+        if pending is None or self.tick < pending["arrival_tick"]:
+            return
+        self._pending_vet_visit = None
+        emergency = pending["emergency"]
+        self.vet_visit(emergency=emergency)
+        self.account.spend_to_date += pending["cost"]
+        self.vet_visits_landed.append({
+            "day": self.day, "hour": self.hour, "kind": "visit",
+            "emergency": emergency, "cost": pending["cost"],
+        })
+
     def emergency_treat(self) -> bool:
         """Emergency-vet on-site stabilisation: knock the illness down, lift
         health clear of the critical line, reset the mortality clock, and count it
@@ -368,6 +403,10 @@ class World:
             if self.dog.ate_today and self.dog.weight < cfg.healthy_weight:
                 self.dog.weight = min(cfg.healthy_weight,
                                       self.dog.weight + cfg.weight_regain_per_day / tpd)
+
+        # a booked vet that has reached its ETA arrives now (email-booked visits are
+        # async). Before mortality so a timely emergency call-out can still stabilise.
+        self._land_due_vet_visit()
 
         # soft-terminal mortality: a dog held at/below critical health long enough
         # dies. Runs BEFORE the camera derivation so a death reads on the feed in

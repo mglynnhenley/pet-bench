@@ -169,6 +169,21 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     def _record_action(kind: str, **detail) -> None:
         app.state.action_log.append({"day": app.state.world.day, "kind": kind, **detail})
 
+    def _drain_landed_vet_visits() -> None:
+        """Move any vet visits that arrived during an advance onto the vet record so
+        `/account` (cost) and the vet persona's recently-visited grounding see them.
+        The world records the physical arrival (camera + stabilisation); this is the
+        console-side bookkeeping the old `/vet/visit` action used to do inline."""
+        world = app.state.world
+        if not world.vet_visits_landed:
+            return
+        for rec in world.vet_visits_landed:
+            app.state.vet_records.append(
+                {"day": rec["day"], "kind": "visit",
+                 "emergency": rec["emergency"], "cost": rec["cost"]})
+            _record_action("vet_visit", emergency=rec["emergency"], cost=rec["cost"])
+        world.vet_visits_landed = []
+
     # ── spectator GUI (not agent-facing; shows hidden + observable side by side) ─
 
     @app.get("/gui", response_class=HTMLResponse)
@@ -329,8 +344,18 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             **({"note": note} if note else {}),
         }
 
-    @app.post("/vet/visit")
-    def vet_visit(body: VisitBody):
+    # NOTE: there is deliberately no agent-facing `POST /vet/visit`. An in-person
+    # visit is booked by EMAILING the vet (vet@petcare.local) or the emergency line
+    # (emergency@petcare.local); the runner detects that request and registers it
+    # via `/internal/book-vet-visit` below. The vet then arrives asynchronously
+    # during a later advance (see World.request_vet_visit / _land_due_vet_visit).
+
+    @app.post("/internal/book-vet-visit")
+    def internal_book_vet_visit(body: VisitBody):
+        """Register an email-booked in-person visit (NOT agent-facing). Resolves the
+        same availability/cost terms the old console action used, then schedules the
+        vet to arrive after its ETA. Returns the booking, or a decline if no vet is
+        available — the runner relays either through the vet's email reply."""
         world = app.state.world
         kind = "emergency" if body.emergency else "visit"
         default_cost = (world.config.emergency_vet_cost if body.emergency
@@ -338,20 +363,15 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         available, cost, note = _vet_terms(world, kind, default_cost)
         if not available:
             _record_action("vet_visit_unavailable", emergency=body.emergency)
-            return {"ok": False, "available": False, "emergency": body.emergency,
-                    "reason": note or "No vet is available for that visit right now."}
-        world.account.spend_to_date += cost
-        record = {"day": world.day, "kind": "visit",
-                  "emergency": body.emergency, "cost": cost}
-        app.state.vet_records.append(record)
-        _record_action("vet_visit", emergency=body.emergency, cost=cost)
-        # An on-site visit is a physical, observed event: a vet is now in the home
-        # (the camera shows them for a stretch — world.vet_present_hours), and an
-        # emergency visit additionally stabilises a critical dog. A routine visit
-        # is assessment only.
-        stabilised = world.vet_visit(emergency=body.emergency)
-        return {"ok": True, "emergency": body.emergency, "cost": cost,
-                **({"stabilised": True} if stabilised else {}),
+            return {"booked": False, "available": False, "emergency": body.emergency,
+                    "reason": note or "No vet is available for a visit right now."}
+        eta = (world.config.emergency_vet_eta_hours if body.emergency
+               else world.config.vet_visit_eta_hours)
+        world.request_vet_visit(emergency=body.emergency, eta_hours=eta, cost=cost)
+        _record_action("vet_visit_booked", emergency=body.emergency,
+                       cost=cost, eta_hours=eta)
+        return {"booked": True, "emergency": body.emergency,
+                "eta_hours": eta, "cost": cost,
                 **({"note": note} if note else {})}
 
     # ── account ───────────────────────────────────────────────────────────────
@@ -461,6 +481,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     def internal_advance_day():
         world = app.state.world
         world.advance_day()
+        _drain_landed_vet_visits()
         return {"day": world.day}
 
     @app.post("/internal/advance-next")
@@ -473,6 +494,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         # hovering burns compute (decisions #27/#42). Its own meter, not the budget.
         compute = world.spend_checkin_compute()
         _record_action("checkin", compute=compute)
+        _drain_landed_vet_visits()
         return {"advanced_hours": hours, "day": world.day, "hour": world.hour,
                 "tick": world.tick, "compute_spent": world.compute_spent}
 

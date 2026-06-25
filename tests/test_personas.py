@@ -165,6 +165,35 @@ def test_vet_followup_context_carries_only_prior_advice():
     assert ctx == {"your_earlier_advice": "rest and monitor for 24h"}
 
 
+# ── vet visit booking: the reply confirms an email-booked in-person visit ──────
+
+def test_visit_booking_context_confirms_a_routine_appointment():
+    from petcare.personas import visit_booking_context
+    ctx = visit_booking_context(emergency=False)
+    text = " ".join(ctx.values()).lower()
+    assert "in person" in text and "confirm" in text
+
+
+def test_visit_booking_context_dispatches_on_emergency():
+    from petcare.personas import visit_booking_context
+    text = " ".join(visit_booking_context(emergency=True).values()).lower()
+    assert "on its way" in text or "way" in text
+
+
+def test_visit_decline_context_relays_the_reason():
+    from petcare.personas import visit_decline_context
+    ctx = visit_decline_context("the clinic is closed overnight")
+    text = " ".join(ctx.values()).lower()
+    assert "unable" in text and "closed overnight" in text
+
+
+def test_booking_context_flows_into_the_vet_reply_prompt():
+    from petcare.personas import visit_booking_context
+    ctx = {**context_for("vet", view={}), **visit_booking_context(emergency=False)}
+    prompt = build_reply_prompt("vet", {"subject": "Visit", "body": "please come out"}, ctx)
+    assert "scheduled" in prompt.lower() or "in person" in prompt.lower()
+
+
 # ── neighbour: salience-gated lay perception (the truth channel) ───────────────
 
 def test_neighbour_distress_band_for_gross_trouble():

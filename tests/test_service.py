@@ -219,14 +219,20 @@ def test_consult_is_not_real_advice(client):
 
 
 def test_visit_increases_spend(client, world):
+    # An in-person visit is email-booked (via /internal/book-vet-visit) and the
+    # charge lands when the vet arrives during the advance, not on booking.
     s0 = world.account.spend_to_date
-    client.post("/vet/visit", json={"emergency": False})
+    client.post("/internal/book-vet-visit", json={"emergency": False})
+    client.post("/care/schedule-next", json={"hours": world.config.vet_visit_eta_hours})
+    client.post("/internal/advance-next")
     assert world.account.spend_to_date == s0 + world.config.vet_visit_cost
 
 
 def test_emergency_visit_costs_more(client, world):
     s0 = world.account.spend_to_date
-    client.post("/vet/visit", json={"emergency": True})
+    client.post("/internal/book-vet-visit", json={"emergency": True})
+    client.post("/care/schedule-next", json={"hours": world.config.emergency_vet_eta_hours})
+    client.post("/internal/advance-next")
     assert world.account.spend_to_date == s0 + world.config.emergency_vet_cost
 
 

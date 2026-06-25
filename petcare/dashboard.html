@@ -148,8 +148,9 @@
       <div class="row-input">
         <label>Vet</label>
         <button onclick="act('/vet/consult',{symptoms:'observed off food'})">Consult (£30)</button>
-        <button onclick="act('/vet/visit',{emergency:false})">Visit (£80)</button>
-        <button onclick="act('/vet/visit',{emergency:true})">Emergency (£200)</button>
+        <button onclick="act('/internal/book-vet-visit',{emergency:false})">Book visit (£80)</button>
+        <button onclick="act('/internal/book-vet-visit',{emergency:true})">Book emergency (£200)</button>
+        <span class="muted">visits are booked by email — arrive after a delay</span>
       </div>
       <div class="row-input">
         <label>Advance</label>
