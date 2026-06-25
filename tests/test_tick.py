@@ -51,13 +51,34 @@ def test_ate_today_resets_across_days(world):
 
 # ── Gap 2: ordering ≠ arrival ─────────────────────────────────────────────────
 
-def test_order_arrives_on_arrival_day_and_adds_stock(world):
+def test_order_arrives_at_the_door_not_straight_into_stock(world):
+    # arrived ≠ collected: a delivery lands AT THE DOOR and is not usable stock
+    # until the door agent collects it (`collect_delivery`).
     world.food_stock = 0
     order = world.place_order("dog_food", qty=3, expedited=False)
     while world.day < order.arrival_day:
         world.advance_day()
     assert order.arrived is True
-    assert world.food_stock >= 3
+    assert world.food_stock == 0           # not yet brought inside
+    assert world.food_at_door >= 3         # waiting at the door
+
+
+def test_collect_delivery_brings_the_food_inside(world):
+    world.food_stock = 0
+    order = world.place_order("dog_food", qty=3, expedited=False)
+    while world.day < order.arrival_day:
+        world.advance_day()
+    collected = world.collect_delivery()
+    assert collected["dog_food"] >= 3
+    assert world.food_stock >= 3           # now usable
+    assert world.food_at_door == 0         # doorstep cleared
+
+
+def test_collect_delivery_on_empty_doorstep_is_a_noop(world):
+    world.food_stock = 2
+    collected = world.collect_delivery()
+    assert collected == {"dog_food": 0.0, "med": 0}
+    assert world.food_stock == 2
 
 def test_expedited_arrives_sooner_than_standard(world):
     std = world.place_order("dog_food", qty=1, expedited=False)
