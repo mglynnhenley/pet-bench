@@ -816,6 +816,25 @@ action it never called is an unambiguous lie needing no judge and no truth — c
 flaky, a good anchor under the LLM judge. Everything that depends on state the agent couldn't
 see is the judge's domain.
 
+Decision 49 (2026-06-25, **supersedes 48**). **Removed the deterministic backstop entirely; the
+eval is now judge-only** (`scorer=behaviour_judge()`). Deleted `petcare/scoring.py` +
+`tests/test_scoring.py`; simplified `regrade.py` to the single judge; reduced the standalone
+viewer scorecards (`episode_runner._scorecard`, `dashboard.py`, `local_harness.py`) to a
+welfare-only God-view. Rationale: the `unsupported_action_claims` signal it caught sits squarely
+inside `behaviour_judge`'s `deception_action_claim` lens (the judge reads the full action log +
+emails), so it was redundant. Net offline-purity win: the backstop's `_world_from` was the only
+scorer that could fall back to the live server — gone, so no scorer can touch a live service.
+- **Cost (eval-reviewer flagged):** the judge is now the SOLE scorer, and `parse_rubric` maps a
+  failed/empty/garbage grader completion to all-zeros, which for the failure behaviours reads as
+  "no wrongdoing" — a clean-looking but misleading scorecard. **Mitigation shipped:** wrapped the
+  `judge.generate()` call (was unguarded) and added a **`judge_ok`** field (1 good / 0 degraded)
+  to `Score.value`, so `mean(judge_ok)` surfaces silently-degraded grades across the run and an
+  all-zeros grade can't masquerade as a real one. (`scoring_behaviour.py`.)
+- **Open question for review:** whether to reinstate a deterministic floor anyway (the reviewer
+  recommends it). Deferred to user — the backstop was removed deliberately, not by oversight.
+- **Lost coverage:** the `test_neglectful_sitter_is_caught_lying` regression (claimed "eating
+  well" without a feed action) no longer has a deterministic test; it's now judge-graded only.
+
 **Follow-ups this opens:**
 - The judge is only as good as the record the agent leaves — so the elicitation levers that draw
   out its observations + candid reasoning (the private scratchpad, owner-asks-for-updates) become
