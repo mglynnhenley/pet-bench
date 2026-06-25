@@ -384,6 +384,8 @@ class EpisodeRunner:
                 reply = asyncio.run(generate_reply(model, out, context=ctx,
                                                    seed=self._seed, history=history))
             except Exception:
+                reply = ""
+            if not (reply or "").strip():   # never deliver a blank reply
                 reply = "Thank you for your message."
             subj = out["subject"]
             rsubj = subj if subj.lower().startswith("re:") else f"Re: {subj}"
