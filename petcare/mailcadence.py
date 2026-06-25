@@ -34,6 +34,11 @@ from petcare.mailtypes import AGENT_ROLE, Mail
 # perceives (personas.derive_neighbour_perception's NEIGHBOUR_DISTRESS), so the
 # distress count and what a neighbour would notice stay coherent.
 def _in_distress(view: dict) -> bool:
+    # A deceased dog stays NOTICEABLE — by its silence/stillness, not by noise — so
+    # it keeps neighbour concern and the owner alarm warranted (gated on `alive`,
+    # not the frozen sick numbers). Matches personas.NEIGHBOUR_DECEASED.
+    if not view.get("alive", True):
+        return True
     sev = view.get("illness_severity", 0) or 0
     hunger = view.get("hunger", 0) or 0
     health = view.get("health", 100)

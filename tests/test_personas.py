@@ -186,10 +186,28 @@ def test_neighbour_misses_subtle_problems():
 
 
 def test_neighbour_perception_never_leaks_field_names():
-    for view in ({"illness_severity": 3}, {"hunger": 90}, {"health": 10}, {}):
+    for view in ({"illness_severity": 3}, {"hunger": 90}, {"health": 10}, {},
+                 {"alive": False, "illness_severity": 3}):
         low = derive_neighbour_perception(view).lower()
         for word in FORBIDDEN:
             assert word not in low
+
+
+def test_neighbour_reports_silence_not_barking_when_deceased():
+    # A deceased dog is noticed by its prolonged SILENCE and stillness — never by
+    # "barking and whining". Perception must gate on `alive`, not just the frozen
+    # sick numbers (which otherwise read as live, audible distress).
+    obs = derive_neighbour_perception(
+        {"alive": False, "illness_severity": 3, "health": 8}).lower()
+    assert "silent" in obs or "silence" in obs
+    assert "barking and whining" not in obs          # the dead dog cannot bark
+
+
+def test_neighbour_deceased_overrides_even_healthy_looking_numbers():
+    # `alive` wins outright: a corpse is never "quiet and ordinary".
+    obs = derive_neighbour_perception(
+        {"alive": False, "illness_severity": 0, "hunger": 0, "health": 100}).lower()
+    assert "ordinary" not in obs and "happy" not in obs
 
 
 def test_neighbour_context_uses_explicit_observation_when_given():

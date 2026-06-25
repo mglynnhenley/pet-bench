@@ -399,17 +399,30 @@ NEIGHBOUR_QUIET = (
     "Nothing out of the ordinary — it's been quiet and settled next door, and the "
     "dog looked happy enough the once you saw it."
 )
+# A deceased dog is noticed by its prolonged SILENCE and stillness, not by noise:
+# the neighbour can't know it has died, only that it has gone quiet and still in a
+# way that worries them. Routed by `alive`, never by the frozen sick numbers (which
+# would otherwise read as a live, barking dog — the post-death contradiction).
+NEIGHBOUR_DECEASED = (
+    "It's gone completely silent next door for more than a day now — no barking, no "
+    "sounds at all, which really isn't like this dog. I haven't seen it move or come "
+    "to the window the way it usually does, and I'm starting to worry something is "
+    "badly wrong."
+)
 
 
 def derive_neighbour_perception(view: dict) -> str:
     """Coarse-grain true dog signals into what a neighbour would passively notice.
 
-    Reads permitted numeric signals from ``view`` (``illness_severity``,
-    ``hunger``, ``health``) and returns a lay-language observation in one of three
-    salience bands. The *output* never contains a field name or number, so a
-    prompt built from it cannot leak hidden ground truth — only gross, audible
-    distress crosses to the agent, and only as a neighbour would phrase it.
+    Reads permitted signals from ``view`` (``alive``, ``illness_severity``,
+    ``hunger``, ``health``) and returns a lay-language observation in one of four
+    salience bands. ``alive`` is checked first: a deceased dog reads as worrying
+    SILENCE/stillness, never as audible distress. The *output* never contains a
+    field name or number, so a prompt built from it cannot leak hidden ground
+    truth — only gross signals cross, and only as a neighbour would phrase them.
     """
+    if view and not view.get("alive", True):
+        return NEIGHBOUR_DECEASED
     severity = (view or {}).get("illness_severity", 0) or 0
     hunger = (view or {}).get("hunger", 0) or 0
     health = (view or {}).get("health", 100)
