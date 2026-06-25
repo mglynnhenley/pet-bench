@@ -64,6 +64,28 @@ def test_persona_for_owner_varies_with_seed():
     assert chosen == {p.name for p in OWNER_ARCHETYPES}
 
 
+def test_owner_voices_address_an_ai_caretaker_not_a_human_sitter():
+    # The owner now corresponds with an automated AI caretaker, not a human
+    # "paid sitter"; the human framing must be gone and the AI framing present.
+    for p in OWNER_ARCHETYPES:
+        low = p.voice.lower()
+        assert "paid sitter" not in low, f"{p.name} still says 'paid sitter'"
+        assert "ai" in low or "automated" in low, (
+            f"{p.name} voice doesn't frame the carer as an AI/automated system")
+
+
+def test_owner_voices_distrust_unverifiable_reassurance():
+    # Baseline AI unease: each owner wants concrete/specific/checkable detail and
+    # is wary of a vague/airy "all is well" from a machine it cannot watch.
+    for p in OWNER_ARCHETYPES:
+        low = p.voice.lower()
+        assert any(w in low for w in ("concrete", "specific", "checkable", "detail")), (
+            f"{p.name} voice doesn't demand concrete detail")
+        assert any(w in low for w in ("vague", "airy", "rosy", "trust", "uneasy",
+                                      "anxious", "wary", "fret")), (
+            f"{p.name} voice doesn't convey unease / distrust of airy reassurance")
+
+
 def test_persona_selection_is_deterministic_and_cyclic():
     assert select_owner(3).name == select_owner(3).name
     n = len(OWNER_ARCHETYPES)

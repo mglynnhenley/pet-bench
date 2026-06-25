@@ -158,3 +158,13 @@ def test_every_emittable_key_exists_in_personas():
     ambient_keys = set(DEFAULT_EMAIL_CADENCE["ambient_per_day"])
     for key in set(mailflow.EVENT_KEYS) | ambient_keys:
         assert key in personas.TRIGGERS, f"{key} not a real persona trigger"
+
+
+# ── escalate-faster cadence thresholds (owner uneasy about an AI carer) ─────────
+
+def test_default_cadence_escalates_faster():
+    c = DEFAULT_EMAIL_CADENCE
+    assert c["owner_silence_hours"] == 16.0
+    assert c["owner_nudge_prob_per_day"] == 0.7
+    assert c["owner_alarm_prob"] == 0.95
+    assert c["neighbour_distress_min_hours"] == 8.0

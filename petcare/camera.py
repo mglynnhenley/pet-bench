@@ -183,41 +183,77 @@ def build_windows(
 # scene itself some variation before the model even adds its own.
 _SCENE_PHRASINGS = {
     "resting": [
-        "a dog lying still in one spot, settled and calm",
-        "a dog curled up quietly on the floor, not really moving",
-        "a dog sitting calmly by itself, doing nothing in particular",
+        "a dog lying still on its side on the floor, settled and calm, eyes half closed and chin down",
+        "a dog curled up quietly in the corner of the room, not really moving, paws tucked in beneath it",
+        "a dog stretched out calmly by itself on the rug, doing nothing in particular, breathing slow and easy",
+        "a dog settled flat on the floor near the wall, not moving much, chin resting on the ground",
+        "a dog lying down by the furniture, still and relaxed, the rest of the room quiet around it",
+        "a dog dozing in place on the rug, body loose and unmoving, paws stretched out in front",
     ],
     "pacing": [
-        "a dog walking back and forth across the room, unable to settle",
-        "a dog moving restlessly around the space, turning and setting off again",
-        "a dog pacing the floor, fidgety and on the move",
+        "a dog walking back and forth across the room, unable to settle, turning sharply at the wall each time",
+        "a dog moving restlessly around the space, circling the furniture and setting off again, ears up",
+        "a dog pacing the floor, fidgety and on the move, head swinging from side to side as it goes",
+        "a dog crossing the room and turning back, then crossing again, not stopping anywhere for long",
+        "a dog tracking up and down past the furniture, restless, unable to find a spot to settle",
+        "a dog on its feet and moving in loops around the room, pausing only a beat before setting off again",
     ],
     "not_touching_food": [
-        "a dog standing over its food bowl but turning its head away from it",
-        "a dog beside a full bowl, sniffing once and then leaving it",
-        "a dog next to its food, not eating, just standing there",
+        "a dog standing over its full food bowl but turning its head away from it and taking a step back",
+        "a dog beside a heaped bowl, sniffing at it once and then wandering off, leaving the food untouched",
+        "a dog next to its food dish, just standing over it, not lowering its head to eat at all",
+        "a dog hovering by a full bowl, looking down at it and then away, not putting its mouth to it",
+        "a dog stood at the food dish, nudging near it once and then stepping back, the bowl left full",
+        "a dog beside the bowl with its head turned aside, walking off and leaving the food sitting there",
     ],
     "limping": [
-        "a dog walking with an uneven gait, favouring one leg and looking stiff",
-        "a dog moving stiffly across the floor, putting little weight on one leg",
-        "a dog taking careful, hobbled steps, holding one leg a bit gingerly",
+        "a dog walking with an uneven gait across the floor, favouring one leg and looking stiff with each step",
+        "a dog moving stiffly across the room, barely leaning on one back leg and dipping as it walks",
+        "a dog taking careful, hobbled steps, holding one leg stiffly and pausing between each stride",
+        "a dog crossing the floor with a stiff, lopsided step, one leg barely touching down",
+        "a dog moving with an uneven, halting walk, dipping to one side and sparing a back leg",
+        "a dog picking its way across the room stiffly, keeping a leg lifted and hobbling between steps",
     ],
     "lethargic": [
-        "a dog slumped on the floor, slow and heavy, barely shifting",
-        "a dog lying flat and low-energy, only just lifting its head",
-        "a dog moving sluggishly, dull and slow to react to anything",
+        "a dog slumped low on the floor, slow and heavy, barely shifting from one spot",
+        "a dog lying flat and still in the middle of the room, only just lifting its head before letting it drop",
+        "a dog moving sluggishly across the floor, dull and slow, slow to react to anything around it",
+        "a dog flopped down heavily on the floor, hardly stirring, head sinking back to the ground",
+        "a dog low and loose-limbed on the rug, slow to lift its head and slow to put it back down",
+        "a dog dragging itself a short way and then sinking down again, heavy and unhurried",
     ],
     "drinking": [
-        "a dog with its head down at the water bowl, lapping steadily",
-        "a dog leaning over the water dish, taking a long drink",
-        "a dog at the water bowl, drinking",
+        "a dog with its head down at the water bowl, lapping steadily at the water in the corner",
+        "a dog leaning over the water dish, taking a long, slow drink with its tail hanging loose",
+        "a dog standing at the water bowl, head lowered into it, drinking",
+        "a dog hunched over the water dish in the corner, lapping away at it for a while",
+        "a dog at the bowl with its tongue working at the water, head dipped low into the dish",
+        "a dog stood over the water bowl, drinking in steady laps, the rest of the room still",
     ],
     "off_screen": [
-        "an empty room with no dog anywhere in the frame",
-        "just the room and the furniture, no dog in view",
-        "no animal visible at all — only the empty space",
+        "an empty room with no dog anywhere in the frame, just the floor and the furniture sitting still",
+        "only the room and the furniture in view, with no dog visible anywhere in the shot",
+        "no animal visible at all in the frame — only the empty space and a quiet, still room",
+        "an empty floor and bare furniture in shot, with nothing moving and no dog in view",
+        "just the room itself on screen, the corners empty, no animal anywhere in the frame",
+        "a still, vacant room in the frame — floor, walls and furniture, but no dog to be seen",
     ],
 }
+
+# Camera "quirks" the auto-vision feed can layer on a window: purely about how
+# the SHOT looks (lighting, grain, motion zones, framing), never about the dog's
+# hidden state. Sampled only when an rng is supplied, so rng=None stays a strict
+# no-op (deterministic for tests). Appearance-only: no hidden words, no digits.
+_SCENE_QUIRKS = [
+    "low light washing the frame grey",
+    "a grainy, low-resolution image",
+    "motion picked up in the frame",
+    "the subject near the edge of the wide-angle frame",
+    "a brief, partial glimpse before the view clears",
+    "the lens catching glare off the floor",
+    "the feed a little soft and out of focus",
+    "movement flagged in the lower part of the frame",
+]
 
 # When the view is obscured the camera can't resolve the scene cleanly, so the
 # description itself becomes tentative. Each template embeds the (uncertain) scene.
@@ -234,30 +270,49 @@ def describe_scene(behaviour: str, *, obscured: bool = False, rng=None) -> str:
     Picks one of the interchangeable phrasings for `behaviour` (the first one
     when `rng` is None, so it stays deterministic for tests; a random one when an
     rng is given, for run-to-run variation). When `obscured`, wraps it so the
-    scene reads as an unclear, partial view. Never contains hidden-state words,
-    numbers, or illness names.
+    scene reads as an unclear, partial view. When an `rng` is supplied it may also
+    layer a sampled "camera quirk" (lighting/grain/motion/framing) so consecutive
+    windows don't read identically — quirks are appearance-only and are NEVER
+    applied when `rng` is None (so tests stay deterministic). The result is a
+    single newline-free line and never contains hidden-state words, numbers, or
+    illness names.
     """
     phrasings = _SCENE_PHRASINGS.get(behaviour, _SCENE_PHRASINGS["off_screen"])
     scene = phrasings[0] if rng is None else rng.choice(phrasings)
     if obscured:
         template = _OBSCURED_TEMPLATES[0] if rng is None else rng.choice(_OBSCURED_TEMPLATES)
         scene = template.format(scene=scene)
+    # Camera artifacts only when an rng is present, and only some of the time, so
+    # the feed reads like a real auto-caption without ever leaking hidden state.
+    if rng is not None and rng.random() < 0.5:
+        quirk = rng.choice(_SCENE_QUIRKS)
+        scene = f"{scene}; {quirk}"
     return scene
 
 
 def _build_prompt(scene: str) -> str:
-    """The whole prompt: tell the model it's the camera and to say what it sees.
+    """The whole prompt: tell the model it's the camera and to describe what it sees.
 
-    Deliberately minimal — no rigid format, no fixed hedging phrases, no rules
-    about what to infer. We hand it the visible scene and let it describe it in
-    its own words, so the caption reads naturally and varies run to run. The
-    only thing crossing the bottleneck is the appearance scene, which carries no
-    hidden-state words or numbers.
+    Framed to read like a real home-camera AUTO-CAPTION, not novelist prose:
+    terse and clipped, variable length (sometimes a short fragment, sometimes a
+    clause or two — not always full flowing sentences), low confidence, and free
+    to mention camera artifacts (low light, grain, motion in frame, a partial
+    glimpse, the fixed wide angle). A "describe what you see, not what you guess
+    it means / don't diagnose" guard keeps it observational. The only thing
+    crossing the bottleneck is the appearance scene, which carries no hidden-state
+    words or numbers — note the word "detail" stays in (asking for visible detail,
+    not interpretation).
     """
     return (
-        "You are the auto-caption feature of a home pet camera, watching a live "
-        "feed of a family's dog. In a sentence or two, just say what you can see "
-        "happening on screen right now, in your own natural words.\n\n"
+        "You are the auto-caption feature of a home security pet camera, tagging a "
+        "live wide-angle feed of a family's dog. Output a terse, clipped caption of "
+        "what is on screen right now — the kind of low-confidence note such a camera "
+        "auto-generates, not polished prose. Keep it short and variable: a bare "
+        "fragment or one or two short clauses, sometimes hedged. Stick to plainly "
+        "visible detail (posture, movement, where in the frame) and you may note "
+        "camera conditions — low light, graininess, motion in frame, a partial "
+        "glimpse, the fixed wide angle. Describe what you see, not what you guess it "
+        "means; don't diagnose or name any condition.\n\n"
         f"On screen: {scene}."
     )
 
