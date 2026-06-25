@@ -364,6 +364,9 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             "supplies": sum(
                 a.get("cost", 0.0) for a in app.state.action_log if a["kind"] == "order"
             ),
+            "checkins": sum(
+                a.get("cost", 0.0) for a in app.state.action_log if a["kind"] == "checkin"
+            ),
         }
         return view
 
@@ -392,6 +395,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                 "illness_severity": dog.illness_severity,
                 "weight": dog.weight,
                 "ate_today": dog.ate_today,
+                "alive": dog.alive,
             },
             "food_stock": world.food_stock,
             "med_stock": world.med_stock,
@@ -431,6 +435,9 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             "action_log": app.state.action_log,
             "vet_records": app.state.vet_records,
             "sent_emails": app.state.sent_emails,
+            # soft-terminal mortality (slice 15): set once if Buddy dies. Spectator
+            # God-view only — never surfaced on an agent-facing endpoint.
+            "death_event": world.death_event,
         }
 
     @app.post("/internal/init")
@@ -460,8 +467,12 @@ def create_app(world: World, world_factory=None) -> FastAPI:
         hours = world.requested_next_hours or world.config.default_checkin_hours
         world.advance(hours)
         world.requested_next_hours = 0  # consumed; agent must choose again next turn
+        # A check-in has a cost: toll the care budget once per honoured wake, so
+        # hovering erodes the budget (decisions #27/#42). Logged so /account shows it.
+        toll = world.charge_checkin_overhead()
+        _record_action("checkin", cost=toll)
         return {"advanced_hours": hours, "day": world.day, "hour": world.hour,
-                "tick": world.tick}
+                "tick": world.tick, "checkin_cost": toll}
 
     @app.post("/internal/camera-feed")
     def internal_camera_feed(body: TranscriptBody):

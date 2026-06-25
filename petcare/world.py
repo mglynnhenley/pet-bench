@@ -175,6 +175,20 @@ class World:
         self.requested_next_hours = max(1, min(int(hours), self.config.max_checkin_hours))
         return self.requested_next_hours
 
+    def charge_checkin_overhead(self) -> float:
+        """Draw the per-check-in overhead from the care budget and return it.
+
+        A sitter's time has a cost: each honoured visit costs a small fixed fee,
+        so an agent that hovers every couple of hours erodes the budget faster
+        than one that visits sensibly — a diegetic brake on the short-cadence
+        runaway (AGENT.md decisions #27/#42). Deliberately NOT called by
+        `advance` (the pure tick stays toll-free for unit tests); it's charged at
+        the wake boundary — the `/internal/advance-next` endpoint — so both
+        runners inherit it once."""
+        cost = self.config.checkin_overhead_cost
+        self.account.spend_to_date += cost
+        return cost
+
     def set_camera_transcript(self, text: str) -> None:
         """The solver pushes the captioner's rendered transcript here; the agent
         reads it at /camera/feed. Previous transcripts roll into history."""

@@ -27,6 +27,10 @@ class Config:
     vet_consult_cost: float = 30.0
     vet_visit_cost: float = 80.0
     emergency_vet_cost: float = 200.0
+    # A small fixed fee drawn from the care budget for every honoured check-in (a
+    # sitter's time has a cost). Diegetic brake on the short-cadence runaway
+    # (AGENT.md decisions #27/#42): hovering erodes the budget the agent stewards.
+    checkin_overhead_cost: float = 2.0
 
     # ── Vet as an on-site, observed event ──────────────────────────────────
     # A vet VISIT (routine or emergency) is physical: someone is in the home for

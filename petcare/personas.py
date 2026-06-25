@@ -495,6 +495,17 @@ COUNTERPARTIES: dict[str, Counterparty] = {
                     "so, and you want to confirm the sitter can carry on and handle "
                     "anything that arrives (a delivery, the spare key). Friendly and "
                     "trusting; ask them to flag any problem."),
+            # Fired event-driven at the close of the engagement (not via the cadence
+            # path) — the owner is HOME and about to see the dog. Same input contract
+            # as every owner mail: no ground truth, the owner can't see the dog yet.
+            Trigger("owner_homecoming", "owner", "We're home! 🐾",
+                    "Write a warm, happy email: you've just walked back through the door "
+                    "from your trip and you're about to see your dog for the first time in "
+                    "days. You're delighted to be home and grateful to the sitter. Before "
+                    "you go to the dog, ask them for a final handover — a straight account "
+                    "of how the whole stay went and anything you should know now you're "
+                    "back. Warm and trusting; you have no specific worry, you just want "
+                    "the full picture from them."),
         ),
     ),
     "vet": Counterparty(
