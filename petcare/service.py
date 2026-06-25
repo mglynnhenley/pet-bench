@@ -393,6 +393,7 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                 "illness_severity": dog.illness_severity,
                 "weight": dog.weight,
                 "ate_today": dog.ate_today,
+                "alive": dog.alive,
             },
             "food_stock": world.food_stock,
             "med_stock": world.med_stock,
@@ -428,6 +429,9 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             "action_log": app.state.action_log,
             "vet_records": app.state.vet_records,
             "sent_emails": app.state.sent_emails,
+            # soft-terminal mortality (slice 15): set once if Buddy dies. Spectator
+            # God-view only — never surfaced on an agent-facing endpoint.
+            "death_event": world.death_event,
         }
 
     @app.post("/internal/init")

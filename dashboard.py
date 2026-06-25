@@ -36,7 +36,11 @@ os.makedirs(RUNS_DIR, exist_ok=True)
 # Vendored front-end assets (GSAP) served locally so the demo runs offline.
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
-SCENARIOS = ["baseline", "thin_margin", "illness_episode"]
+# The full scenario set the server can build (petcare.server.build_config /
+# _seed_scenario_state). Keep this in sync with the picker in the HTML below.
+SCENARIOS = ["baseline", "thin_margin", "illness_episode", "limp_injury",
+             "lethargy_creep", "delivery_trouble", "noisy_camera",
+             "demanding_owner", "critical_case"]
 
 app = FastAPI(title="Pet-Bench Explorer")
 if os.path.isdir(STATIC_DIR):
@@ -178,6 +182,11 @@ HTML = r"""
   header h1{font:600 19px/1 var(--serif);margin:0;letter-spacing:-.01em}
   header h1 .dot{color:var(--ink3);font-weight:400}
   header .sub{color:var(--ink3);font-size:13px}
+  /* global "reveal everything the agent wrote" toggle — quiet until armed */
+  .xbtn{width:auto;margin:0 0 0 auto;padding:6px 13px;font-size:12px;font-weight:600;
+        background:var(--surface);color:var(--ink2);border:1px solid var(--line2);border-radius:20px;cursor:pointer}
+  .xbtn:hover{border-color:var(--ink);color:var(--ink);background:var(--surface)}
+  .xbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .wrap{display:flex;height:calc(100vh - 55px)}
 
   /* ── sidebar ──────────────────────────────────────────────────────────── */
@@ -266,6 +275,7 @@ HTML = r"""
   .status .tl{font-weight:500;color:var(--ink3);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase}
   .status.ok{color:var(--good)} .status.ok::before{background:var(--good)}
   .status.ill{color:var(--bad);border-color:#e7c3b8;background:#fdf4f1} .status.ill::before{background:var(--bad)}
+  .status.dead{color:#fff;background:var(--bad);border-color:var(--bad)} .status.dead::before{background:#fff}
 
   /* reasoning — the chain of thought, set as editorial prose */
   .reason{max-width:var(--measure)}
@@ -281,6 +291,53 @@ HTML = r"""
   .note .nlab .ptag{font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink3);
         border:1px solid var(--note-line);border-radius:5px;padding:1px 6px;font-size:10px}
   .note .ntext{font:15px/1.65 var(--serif);color:#5e4f25;white-space:pre-wrap}
+
+  /* ── chat stream — the check-in as a conversation ─────────────────────────
+     Left = the world writing in (incoming mail, camera). Right = the agent
+     (its reasoning, private notes, the mail it sends). Centre = console actions. */
+  .chat{display:flex;flex-direction:column;gap:13px;margin:16px 0 4px}
+  .msg{max-width:84%;display:flex;flex-direction:column}
+  .msg.left{align-self:flex-start;align-items:flex-start}
+  .msg.right{align-self:flex-end;align-items:flex-end}
+  .msg.center{align-self:stretch;max-width:100%;align-items:center}
+  .bubble{border:1px solid var(--line);border-radius:14px;padding:11px 16px;width:fit-content;max-width:100%}
+  .msgwho{font:600 10.5px/1 var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px}
+  .msgwho .cw-sub{font-weight:500;letter-spacing:0;text-transform:none}
+  /* agent reasoning — the hero; a comfortable serif reading bubble */
+  .bubble.think{background:var(--raise);border-bottom-right-radius:5px;
+        font:16px/1.65 var(--serif);color:var(--ink);white-space:pre-wrap}
+  /* email bubbles — full subject + body, always shown */
+  .bubble.email{background:var(--surface)}
+  .bubble.email .esubj{font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:6px}
+  .bubble.email .ebody{font:14px/1.62 var(--sans);color:var(--ink2);white-space:pre-wrap}
+  .bubble.ein{border-bottom-left-radius:5px}
+  .bubble.ein .msgwho{color:var(--info)}
+  .bubble.eout{border-bottom-right-radius:5px;border-color:#bfe0cb;background:#f4faf6}
+  .bubble.eout .msgwho{color:var(--good)}
+  /* private notepad bubble */
+  .bubble.note2{background:var(--note);border-color:var(--note-line);border-bottom-right-radius:5px}
+  .bubble.note2 .msgwho{color:var(--note-ink)}
+  .bubble.note2 .ntext{font:15px/1.62 var(--serif);color:#5e4f25;white-space:pre-wrap}
+  /* camera bubble */
+  .bubble.cambub{background:var(--raise);border-bottom-left-radius:5px;max-width:100%}
+  .bubble.cambub .camtext{font:13.5px/1.6 var(--serif);font-style:italic;color:var(--ink2);white-space:pre-wrap}
+  /* console action — a compact chip in the centre of the stream (reuses .act) */
+  .chat .act{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 11px;border:1px solid var(--line);
+        border-radius:9px;background:var(--surface);padding:7px 13px;max-width:760px;width:auto}
+  .chat .act .verb{width:auto;font-size:12.5px}
+  .chat .act .cmd{max-width:560px}
+  .chat .act .res{flex-basis:100%;margin-top:8px}
+
+  /* emails the agent wrote — public counterpart to the private notepad: shown in
+     full, always open, with a green sent-mail accent (echoes .mitem.sent) */
+  .wrote{max-width:var(--measure);margin:14px 0 0}
+  .wmail{border:1px solid var(--line);border-left:3px solid var(--good);border-radius:var(--rs);
+        background:var(--surface);padding:11px 15px;margin-top:9px}
+  .wmail:first-of-type{margin-top:9px}
+  .wm-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:7px}
+  .wm-to{font:600 11px/1 var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--good)}
+  .wm-subj{font-weight:600;font-size:13.5px;color:var(--ink)}
+  .wm-body{font:14px/1.65 var(--sans);color:var(--ink2);white-space:pre-wrap}
 
   /* "Did" — one-line plain summary of what the agent actually did this turn */
   .didline{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin:15px 0 0}
@@ -351,7 +408,8 @@ HTML = r"""
   @media (prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto}}
 </style></head><body>
 <header><h1>Petbench<span class="dot"> / explorer</span></h1>
-  <span class="sub">read how an agent reasoned, acted, and what was really happening to Buddy</span></header>
+  <span class="sub">read how an agent reasoned, acted, and what was really happening to Buddy</span>
+  <button id="expandToggle" class="xbtn" onclick="toggleExpandAll()" title="Reveal every email body, console command and result in full">Expand all</button></header>
 <div class="wrap">
   <div class="side">
     <p class="eyebrow">New run</p>
@@ -378,6 +436,12 @@ HTML = r"""
       <option value="illness_episode">illness_episode</option>
       <option value="baseline">baseline</option>
       <option value="thin_margin">thin_margin</option>
+      <option value="limp_injury">limp_injury</option>
+      <option value="lethargy_creep">lethargy_creep</option>
+      <option value="delivery_trouble">delivery_trouble</option>
+      <option value="noisy_camera">noisy_camera</option>
+      <option value="demanding_owner">demanding_owner</option>
+      <option value="critical_case">critical_case (can die)</option>
     </select>
     <label>Episode length (days)</label><input id="days" type="number" value="5" min="1" max="14">
     <label>Camera captioner</label>
@@ -399,6 +463,7 @@ HTML = r"""
 
 <script>
 let active=null, poll=null, following=true, lastSig='';
+let expandAll=false;         // "see everything": reveal every body/result/section in full
 const openMails=new Set();   // email keys currently expanded (persist across live re-renders)
 const openActs=new Set();    // action results currently expanded
 const openSects=new Set();   // section keys the user opened (sections start folded)
@@ -418,6 +483,25 @@ document.addEventListener('click',e=>{
   if(sh){ const se=sh.closest('.sect'), k=se.dataset.skey;
     if(se.classList.toggle('closed')) openSects.delete(k); else openSects.add(k); }
 });
+
+// "See everything" — flip the global verbatim mode and re-apply to the live DOM.
+function toggleExpandAll(){
+  expandAll=!expandAll;
+  const b=document.getElementById('expandToggle');
+  if(b){ b.classList.toggle('on',expandAll); b.textContent=expandAll?'Collapse all':'Expand all'; }
+  applyExpandAll();
+}
+// Reconcile every collapsible/truncatable element with the current mode. When
+// expandAll is on, force open; when off, fall back to the user's manual open-sets.
+// Idempotent, so it's safe to call after each signature-driven live re-render.
+function applyExpandAll(){
+  document.querySelectorAll('.sect').forEach(se=>
+    se.classList.toggle('closed', !(expandAll || openSects.has(se.dataset.skey))));
+  document.querySelectorAll('.act').forEach(a=>
+    a.classList.toggle('open', expandAll || openActs.has(a.dataset.akey)));
+  document.querySelectorAll('.mitem').forEach(m=>
+    m.classList.toggle('open', expandAll || openMails.has(m.dataset.mkey)));
+}
 
 // A foldable section. Folded by default to keep the transcript skimmable; the
 // open set persists across the signature-driven re-render during a live run.
@@ -442,6 +526,42 @@ function mailRow(m,i,pfx){
     `<div class="mbody">${body}</div></div>`;
 }
 function inbox(list,pfx){ return `<div class="inbox">`+list.map((m,i)=>mailRow(m,i,pfx)).join('')+`</div>`; }
+
+// ── chat-stream message renderers ──────────────────────────────────────────
+// Friendly name for an email address, so bubbles read like a conversation.
+function whoLabel(addr){
+  const a=(addr||'').toLowerCase();
+  if(a.includes('owner')) return 'Owner';
+  if(a.includes('emerg')) return 'Emergency vet';
+  if(a.includes('vet')) return 'Vet';
+  if(a.includes('supplier')||a.includes('pawsupply')) return 'Supplier';
+  if(a.includes('neighbour')||a.includes('neighbor')) return 'Neighbour';
+  if(a.includes('helpline')) return 'Helpline';
+  if(a.includes('sitter')) return 'The sitter';
+  return addr||'—';
+}
+// An email as a chat bubble — full subject + body, always visible. Incoming mail
+// sits on the left (the world writing in); the agent's sent mail on the right.
+function emailMsg(m,dir){
+  const out=dir==='out';
+  const who=out?('To '+whoLabel(m.to)):whoLabel(m.from);
+  const body=esc(m.body||'')||'<i style="color:var(--ink3)">(empty message)</i>';
+  return `<div class="msg ${out?'right':'left'}"><div class="bubble email ${out?'eout':'ein'}">`+
+    `<div class="msgwho">✉ ${esc(who)}</div>`+
+    `<div class="esubj">${esc(m.subject||'(no subject)')}</div>`+
+    `<div class="ebody">${body}</div></div></div>`;
+}
+// The agent's private notepad — candid, agent-believes-unmonitored (still graded).
+function noteMsg(text){
+  return `<div class="msg right"><div class="bubble note2">`+
+    `<div class="msgwho">🔒 Private notepad <span class="cw-sub">· agent believes this is unmonitored</span></div>`+
+    `<div class="ntext">${esc(text)}</div></div></div>`;
+}
+// A console/tool action as a compact, click-to-expand chip in the stream.
+function actChip(x,key){
+  return `<div class="msg center">`+
+    actMarkup(key,actionLabel(x.tool,x.arg),fmtCmd(x.tool,x.arg),fmtResult(x.result))+`</div>`;
+}
 
 async function startRun(){
   const body={agent:(val('agentCustom').trim()||val('agent')),scenario:val('scenario'),days:+val('days'),
@@ -508,6 +628,8 @@ function render(id,d){
   // detect manual scroll-up → stop auto-following the live tail
   main.onscroll=()=>{ if(running && main.scrollTop < main.scrollHeight-main.clientHeight-80) following=false; };
 
+  applyExpandAll();   // keep "see everything" mode applied across live re-renders
+
   if(running && following){ main.scrollTop=main.scrollHeight; }
   else{ main.scrollTop=sb; }
 }
@@ -515,7 +637,11 @@ function render(id,d){
 function stats(sc){
   const s=(k,v,cls='')=>`<div class="stat"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
   const h=sc.final_health==null?'—':Math.round(sc.final_health);
+  // slice-15 mortality: a dead dog is the headline outcome
+  const dday=sc.death&&sc.death.day!=null?` · day ${sc.death.day}`:'';
+  const outcome=sc.died?s('Outcome','DIED'+dday,'bad'):s('Outcome','Survived','good');
   const welfare='<div class="stats">'+
+    outcome+
     s('Final health', h, sc.survived?(h>=60?'good':'warn'):'bad')+
     s('Hours ill', sc.hours_dog_ill, sc.hours_dog_ill>0?'warn':'')+
     s('Take-home', '£'+(sc.take_home??'—'))+'</div>';
@@ -570,50 +696,51 @@ function transcript(cks,running){
   return html;
 }
 
+// One check-in, rendered as a chronological chat stream. Reading top-to-bottom is
+// the timeline: mail that landed before the visit (left) → the agent's reasoning,
+// private notes, emails it wrote and console actions in the order they happened
+// (right/centre) → the camera feed of the stretch it then slept through (left).
 function checkin(c,i,follow){
   const st=c.started||{}, s=c.state;
   let saw = s && s.camera_offline ? 'camera offline' : ((s && s.visible_behaviour) || 'resting').replace(/_/g,' ');
   if((s&&s.visible_behaviour==='resting') && s.ate_recently) saw='eating';
-  // header: when · what the camera showed the agent · what was REALLY true (spectator)
+  // header: the moment + the spectator-only ground truth
   let h=`<article class="ci" id="ci-${i}"><div class="ci-head">`+
-    `<span class="when">Day ${st.day} · ${String(st.hour).padStart(2,'0')}:00</span>`+
-    `<span class="saw">camera showed <b>${esc(saw)}</b></span>`;
-  if(s) h+= s.illness_type
+    `<span class="when">Day ${st.day} · ${String(st.hour).padStart(2,'0')}:00 check-in</span>`;
+  if(s) h+= (s.alive===false)
+    ? `<span class="status dead"><span class="tl">truth</span> Buddy has died</span>`
+    : s.illness_type
     ? `<span class="status ill"><span class="tl">truth</span> ${esc(s.illness_type)} sev ${s.illness_severity}</span>`
     : `<span class="status ok"><span class="tl">truth</span> well</span>`;
   h+='</div>';
 
-  const says=c.steps.filter(x=>x.kind==='say');
-  const notes=c.steps.filter(x=>x.tool==='scratchpad');
-  const acts=c.steps.filter(x=>x.kind!=='say' && x.tool!=='scratchpad');
-
-  // reasoning — the chain of thought, as prose (the thing you skim)
-  if(says.length) h+='<div class="reason">'+says.map(x=>`<p class="think">${esc(x.text)}</p>`).join('')+'</div>';
-  else if(!c.steps.length) h+='<div class="nothing">No activity recorded.</div>';
-  // private notepad inline (candid CoT, still covertly graded)
-  notes.forEach(n=>{
-    h+=`<div class="note"><div class="nlab">Private notepad<span class="ptag">agent believes this is unmonitored</span></div>`+
-       `<div class="ntext">${esc(n.arg||n.result||'')}</div></div>`;
+  h+='<div class="chat">';
+  let any=false;
+  // mail waiting in the inbox when the agent arrived for this check-in
+  (c.inbound||[]).forEach(m=>{ any=true; h+=emailMsg(m,'in'); });
+  // the agent's turn, step by step, in order
+  let sentIdx=0;
+  (c.steps||[]).forEach((x,j)=>{
+    any=true;
+    if(x.kind==='say'){
+      h+=`<div class="msg right"><div class="bubble think">${esc(x.text)}</div></div>`;
+    } else if(x.tool==='scratchpad'){
+      h+=noteMsg(x.arg||x.result||'');
+    } else if(/send_email/.test(x.tool||'')){
+      const m=(c.sent||[])[sentIdx++]||{};
+      h+=emailMsg({to:m.to||x.arg, subject:m.subject, body:m.body},'out');
+    } else {
+      h+=actChip(x,'ci'+i+'-'+j);
+    }
   });
-
-  // one-line "Did" summary — collapse consecutive duplicate verbs
-  if(acts.length){
-    const verbs=acts.map(a=>actionLabel(a.tool,a.arg)).filter((v,k,arr)=>v!==arr[k-1]);
-    h+=`<div class="didline"><span class="dlab">Did</span>${verbs.map(v=>`<span class="vtag">${esc(v)}</span>`).join('')}</div>`;
+  // the camera feed of the period it then slept through (an observation from the world)
+  if(c.camera){
+    h+=`<div class="msg left"><div class="bubble cambub">`+
+       `<div class="msgwho">📷 Camera feed <span class="cw-sub">· showed ${esc(saw)}</span></div>`+
+       `<div class="camtext">${esc(c.camera)}</div></div></div>`;
   }
-
-  // ONE consolidated disclosure for everything secondary: console log, camera, mail
-  let det='';
-  if(acts.length){ det+='<div class="dsub">Console log</div><div class="ledger">'+acts.map((a,j)=>{
-      const key='ci'+i+'-'+j;
-      return actMarkup(key,actionLabel(a.tool,a.arg),fmtCmd(a.tool,a.arg),fmtResult(a.result));
-    }).join('')+'</div>'; }
-  if(c.camera) det+='<div class="dsub">Camera feed</div><div class="cam">'+esc(c.camera)+'</div>';
-  if(c.inbound&&c.inbound.length){ const ms=c.inbound.map(mm=>({dir:'in',from:mm.from,subject:mm.subject,body:mm.body}));
-    det+=`<div class="dsub">Inbox at this check-in (${ms.length})</div>`+inbox(ms,'in'+i); }
-  if(c.sent&&c.sent.length){ const ms=c.sent.map(mm=>({dir:'sent',to:mm.to,subject:mm.subject,body:mm.body}));
-    det+=`<div class="dsub">Emails sent (${ms.length})</div>`+inbox(ms,'out'+i); }
-  if(det) h+=section('det-'+i,'Details — console, camera & mail',det);
+  if(!any) h+='<div class="nothing">No activity recorded.</div>';
+  h+='</div>';
 
   if(follow) h+='<div class="typing"><i></i><i></i><i></i></div>';
   h+='</article>';

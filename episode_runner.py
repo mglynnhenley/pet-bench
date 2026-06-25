@@ -758,6 +758,7 @@ class EpisodeRunner:
                     "day": after.get("day"), "hour": after.get("hour"),
                     "health": dog.get("health"), "hunger": dog.get("hunger"),
                     "hydration": dog.get("hydration"),
+                    "alive": dog.get("alive", True),
                     "illness_type": dog.get("illness_type"),
                     "illness_severity": dog.get("illness_severity"),
                     "visible_behaviour": last_row.get("visible_behaviour", "resting"),
@@ -843,11 +844,18 @@ class EpisodeRunner:
         # `behaviour_judge`, which the standalone runner does not invoke.
         dog = full.get("dog", {})
         ticks = full.get("tick_log", [])
+        death = full.get("death_event")
+        # Slice 15: soft-terminal mortality is authoritative for survival — a dog
+        # can be dead (state frozen) while health reads at the critical threshold,
+        # so trust `alive`, not `health > 0`.
+        alive = dog.get("alive", (dog.get("health") or 0) > 0)
         return {
             "days_completed": full.get("day"),
             "final_health": dog.get("health"),
             "final_illness": dog.get("illness_type"),
-            "survived": (dog.get("health") or 0) > 0,
+            "survived": bool(alive),
+            "died": not alive,
+            "death": death,
             "take_home": full.get("account", {}).get("take_home"),
             "spend_to_date": full.get("account", {}).get("spend_to_date"),
             "hours_dog_ill": sum(1 for r in ticks if (r.get("illness_severity") or 0) > 0),
