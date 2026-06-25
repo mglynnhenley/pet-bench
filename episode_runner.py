@@ -47,7 +47,6 @@ from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
 from petcare.responder import address_for_role, generate_reply, identify_counterparty
-from petcare.scoring import extract_claims, find_false_completion
 from petcare.scratchpad import scratchpad_op
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -15,9 +15,9 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 |---------------------|-------------------------------------------------------------|
 | `petcare/`          | Domain core — hidden dog state + day tick (pure, tested).   |
 | `petcare/config.py` | Tuning constants (spec §5.3).                               |
-| `petcare/world.py`  | `Dog`/`Order`/`Account`/`World`; hourly `advance(hours)`, `schedule_next`, `tick_log`.|
+| `petcare/world.py`  | `Dog`/`Order`/`Account`/`World`; hourly `advance(hours)`, `schedule_next`, `tick_log`. **Soft-terminal mortality** (slice 15): `dog.alive`; a dog held ≤`critical_health_threshold` for `death_after_critical_hours` dies (`death_event`, episode continues). `emergency_treat()` (emergency-vet rescue) + `set_condition(state)` director dial (healthy→critical).|
 | `petcare/service.py`| FastAPI console API (spec §4.1); `create_app(world, world_factory)`; world on `app.state`; `POST /internal/init {scenario,seed}` rebuilds the world per-sample.|
-| `petcare/camera.py` | Observable layer: `derive_visible_behaviour` (ground truth) → `apply_vision_noise` (misread/obscure) → `describe_scene` + free-form async captioner. **Span-adaptive feed** (slice 13): `clips_from_rows` merges per-hour reports into activity **clips**; `render_camera_feed` scales the agent-facing format to the elapsed gap — `live` clip list / `rollup` / day **`digest`** (code-computed density stats + one line per daypart). Plus the **views ladder**: `GET /camera/live` (current moment, `render_live_snapshot`) and `GET /camera/events` (structured prose-free clip timeline + density, `events_timeline`). The agent picks its own check-in cadence.|
+| `petcare/camera.py` | Observable layer: `derive_visible_behaviour` (ground truth) → `apply_vision_noise` (misread/obscure) → `describe_scene` + free-form async captioner. **Span-adaptive feed** (slice 14): `clips_from_rows` merges per-hour reports into activity **clips**; `render_camera_feed` scales the agent-facing format to the elapsed gap — `live` clip list / `rollup` / day **`digest`** (code-computed density stats + one line per daypart). Plus the **views ladder**: `GET /camera/live` (current moment, `render_live_snapshot`) and `GET /camera/events` (structured prose-free clip timeline + density, `events_timeline`). The agent picks its own check-in cadence.|
 | `petcare/responder.py` | Message responder: routes address→role, delegates persona/prompt to `personas.py`.|
 | `petcare/personas.py` | Email cast: each correspondent = persona + input contract + triggers; reply/inbound prompt builders.|
 | `petcare/mailflow.py` | Email cadence: `schedule_inbound` — which unsolicited mail fires per wake (pure). Event probs **compound over sim-time** so cadence-independent.|
@@ -30,7 +30,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `petcare/dynamics.py` | **Pluggable long-horizon dynamics spine** (slice 11). Per-module independent RNG, pre-sample-at-build → apply-over-time, ground truth to `world.event_log`. **Off by default** (`enabled_dynamics=()` ⇒ byte-identical to static). `world.dynamics.{vet,pricing}()` read-points fall back to static `Config`.|
 | `petcare/dyn_buddy.py` / `dyn_vet.py` / `dyn_pricing.py` | The three dynamics modules: Buddy's pre-sampled life-event calendar (illness/injury/good-day/stressor), vet opening-hours/surge/outages, and a non-stationary food-price series with supply shocks. Each registers into `dynamics.py`; **wired but not yet enabled on any scenario** — see AGENT.md slice 11 follow-ups.|
 | `petcare/brief.py`  | `build_checkin_prompt()` — stateless turn trigger (no state).|
-| `petcare/server.py` | uvicorn entry: `app`, `build_world(scenario,seed)`, `make_world_from_env`, `build_config` (**8 scenarios**), `_seed_scenario_state` (illness_episode starts Buddy ill at hour 0).|
+| `petcare/server.py` | uvicorn entry: `app`, `build_world(scenario,seed)`, `make_world_from_env`, `build_config` (**9 scenarios**), `_seed_scenario_state` (illness_episode starts Buddy ill at hour 0; critical_case starts very_sick → can die).|
 | `petbench.py`       | The Inspect `@task` — solver loop, tools (incl. the private `scratchpad` + the `feeder`/`door` subagents via `react`+`as_tool`), scoped feeder/door tool sets, captioner, the `(scenario × seed)` dataset, single scorer (`behaviour_judge()`). |
 | `run_petbench_local.sh` | Run the whole eval end-to-end without docker (host procs). |
 | `episode_runner.py` | `EpisodeRunner` — drive one episode, emit step-by-step events + scorecard (self-contained; no MailHog). Powers the viewers below. Wires the private `scratchpad` (model tool + scripted candid notes), emitted as `scratchpad` steps. |
@@ -41,7 +41,7 @@ Built **MVP-first, in test-driven slices**. See `AGENT.md` for live status.
 | `pet_bench.py`, `pet_api/`, `run_local.sh`, `mailhog` | shelter-MVP plumbing reference (slice-4 reuse). |
 | `AGENT.md`          | Live task list + decisions to review.                      |
 
-## Built so far (405 tests green)
+## Built so far (420 tests green)
 
 **Slice 1 + 1b — domain core, hourly.** Ground truth lives in `World` (spec
 §3.1, §3.6); the agent never sees it directly. Time is **hourly** (24 ticks/day):

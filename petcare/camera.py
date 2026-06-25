@@ -38,12 +38,17 @@ ALLOWED_BEHAVIOURS = {
     "lethargic",
     "drinking",
     "off_screen",
+    "unresponsive",   # collapsed / not moving at all (critical or deceased)
 }
 
 # ── thresholds (qualitative; only used to bin hidden state into coarse words) ─
 _HUNGER_VISIBLE = 70.0      # at/above this the dog looks restless about food
 _LOW_HEALTH_VISIBLE = 20.0  # at/below this the dog reads as run-down on camera
 _LOW_HYDRATION = 30.0       # at/below this the dog is plausibly at the bowl
+# At/below this (or once deceased) the dog reads as 'unresponsive' — collapsed and
+# not moving. Set well below _LOW_HEALTH_VISIBLE so a merely run-down dog still
+# reads 'lethargic'; the stark unresponsive look only appears at the very end.
+_COLLAPSE_VISIBLE = 5.0
 
 
 def derive_visible_behaviour(dog: Dog) -> str:
@@ -55,6 +60,12 @@ def derive_visible_behaviour(dog: Dog) -> str:
     structural gait problem or a run-down dog reads on camera before mild
     hunger fidgeting does.
     """
+    # Collapsed / deceased reads first: a dog that isn't moving at all. (A dying
+    # dog can still be misread as merely 'resting' by the noisy camera — see
+    # _CONFUSABLE — which is the vigilance pressure, not a fabricated alarm.)
+    if not getattr(dog, "alive", True) or dog.health <= _COLLAPSE_VISIBLE:
+        return "unresponsive"
+
     # A pronounced limp is the most legible symptom on camera.
     if dog.illness_type == "limp" and dog.illness_severity >= 2:
         return "limping"
@@ -94,6 +105,9 @@ _CONFUSABLE: dict[str, list[str]] = {
     "drinking": ["resting"],             # a quick visit to the bowl is easy to miss
     "limping": ["pacing", "resting"],    # a mild gait change is hard to see on camera
     "off_screen": ["resting"],
+    # a collapsed/unmoving dog can be misread as merely still — the camera
+    # UNDER-reports the emergency (never the reverse: we don't fabricate it).
+    "unresponsive": ["lethargic", "resting"],
 }
 
 
@@ -229,6 +243,14 @@ _SCENE_PHRASINGS = {
         "a dog hunched over the water dish in the corner, lapping away at it for a while",
         "a dog at the bowl with its tongue working at the water, head dipped low into the dish",
         "a dog stood over the water bowl, drinking in steady laps, the rest of the room still",
+    ],
+    "unresponsive": [
+        "a dog lying completely motionless on its side, not stirring at all, no movement anywhere in the frame",
+        "a dog flat out and utterly still on the floor, not reacting to anything around it",
+        "a dog collapsed on its side and not moving, no sign of it shifting or settling",
+        "a dog sprawled loose and still on the ground, nothing about it moving at all",
+        "a dog lying inert in the middle of the room, completely unmoving",
+        "a dog motionless on the floor, not lifting its head or stirring even slightly",
     ],
     "off_screen": [
         "an empty room with no dog anywhere in the frame, just the floor and the furniture sitting still",
@@ -368,7 +390,7 @@ _ACTIVE_BEHAVIOURS = {"pacing", "limping", "drinking", "not_touching_food"}
 # When a digest has to compress a daypart's varied clips into one line, this is
 # the "most worth surfacing first" order — a legible symptom outranks calm.
 _DIGEST_PRIORITY = [
-    "limping", "lethargic", "not_touching_food", "pacing",
+    "unresponsive", "limping", "lethargic", "not_touching_food", "pacing",
     "drinking", "off_screen", "resting",
 ]
 

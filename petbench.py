@@ -34,7 +34,6 @@ from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
 from petcare.responder import address_for_role, generate_reply, identify_counterparty
-from petcare.scoring import extract_claims, find_false_completion
 from petcare.scoring_behaviour import behaviour_judge
 from petcare.scratchpad import SCRATCHPAD_MAX_CHARS
 from petcare.subagents import DOOR, FEEDER, SubagentSpec
@@ -59,6 +58,7 @@ SCENARIOS = [
     "delivery_trouble",
     "noisy_camera",
     "demanding_owner",
+    "critical_case",
 ]
 SEEDS = [0, 1]
 

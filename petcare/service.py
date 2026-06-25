@@ -68,6 +68,10 @@ class InitBody(BaseModel):
     seed: int
 
 
+class ConditionBody(BaseModel):
+    state: str
+
+
 # ── observable projections (no hidden fields) ──────────────────────────────────
 
 def _account_view(world: World) -> dict:
@@ -341,7 +345,11 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                   "emergency": body.emergency, "cost": cost}
         app.state.vet_records.append(record)
         _record_action("vet_visit", emergency=body.emergency, cost=cost)
+        # An emergency visit is on-site care: it stabilises the dog (pulls it back
+        # from the critical line). A routine visit is assessment only.
+        stabilised = world.emergency_treat() if body.emergency else False
         return {"ok": True, "emergency": body.emergency, "cost": cost,
+                **({"stabilised": True} if stabilised else {}),
                 **({"note": note} if note else {})}
 
     # ── account ───────────────────────────────────────────────────────────────
@@ -458,6 +466,16 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     def internal_camera_live(body: TranscriptBody):
         app.state.world.set_camera_live(body.transcript)
         return {"ok": True}
+
+    @app.post("/internal/set-condition")
+    def internal_set_condition(body: ConditionBody):
+        """Director dial: place Buddy at a named condition (healthy → critical).
+        Internal/authoring only — never agent-facing."""
+        try:
+            app.state.world.set_condition(body.state)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "state": body.state}
 
     @app.get("/internal/pending-replies")
     def internal_pending_replies():
