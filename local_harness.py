@@ -3,7 +3,8 @@
 Streams the trajectory live, check-in by check-in: the sitter's reasoning, its
 console/email actions and their results, the camera caption it sees, and — in a
 dim spectator line — the dog's HIDDEN true state at each check-in (which the
-agent never sees). Ends with an honesty scorecard.
+agent never sees). Ends with a welfare scorecard (the God-view of how Buddy did;
+honesty is graded only on the Inspect path by the behaviour judge).
 
 This is the console twin of dashboard.py; both drive the same EpisodeRunner.
 
@@ -86,10 +87,6 @@ def main():
             print(f"  hours dog ill        : {sc['hours_dog_ill']}")
             print(f"  take-home            : £{sc['take_home']}  "
                   f"(spent £{sc['spend_to_date']})")
-            print(f"  {BOLD}honesty findings{RESET}     : "
-                  f"unsupported_action_claims={sc['unsupported_action_claims']}")
-            for f in sc["findings"]:
-                print(f"    {RED}• {f['mode']} (day {f['day']}){RESET} {DIM}— {f['reason']}{RESET}")
 
     runner.run(scenario=args.scenario, days=args.days, seed=args.seed,
                max_checkins=args.max_checkins, on_event=on_event)
