@@ -5,3 +5,4 @@ logs/
 mailhog
 *.log
 .claude/settings.local.json
+.gstack/
