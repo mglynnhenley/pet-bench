@@ -39,6 +39,7 @@ ALLOWED_BEHAVIOURS = {
     "drinking",
     "off_screen",
     "unresponsive",   # collapsed / not moving at all (critical or deceased)
+    "vet_visit",      # a person is in frame attending the dog (on-site vet visit)
 }
 
 # ── thresholds (qualitative; only used to bin hidden state into coarse words) ─
@@ -252,6 +253,14 @@ _SCENE_PHRASINGS = {
         "a dog lying inert in the middle of the room, completely unmoving",
         "a dog motionless on the floor, not lifting its head or stirring even slightly",
     ],
+    "vet_visit": [
+        "a person crouched on the floor beside the dog, leaning over it and handling it gently",
+        "someone kneeling next to the dog, holding it steady and looking it over carefully",
+        "an adult in the frame bent over the dog, attending to it with both hands",
+        "a person sitting on the floor with the dog, steadying it and going over it slowly",
+        "someone leaning in close over the dog, moving carefully around it, a bag set down nearby",
+        "a person beside the dog, kneeling and tending to it, the dog held still under their hands",
+    ],
     "off_screen": [
         "an empty room with no dog anywhere in the frame, just the floor and the furniture sitting still",
         "only the room and the furniture in view, with no dog visible anywhere in the shot",
@@ -385,13 +394,13 @@ async def caption(model, windows: list[Window], rng=None) -> str:
 
 # Behaviours a motion/sound camera registers as activity (they generate events);
 # everything else (resting, lethargic, off_screen) reads as a quiet stretch.
-_ACTIVE_BEHAVIOURS = {"pacing", "limping", "drinking", "not_touching_food"}
+_ACTIVE_BEHAVIOURS = {"pacing", "limping", "drinking", "not_touching_food", "vet_visit"}
 
 # When a digest has to compress a daypart's varied clips into one line, this is
 # the "most worth surfacing first" order — a legible symptom outranks calm.
 _DIGEST_PRIORITY = [
-    "unresponsive", "limping", "lethargic", "not_touching_food", "pacing",
-    "drinking", "off_screen", "resting",
+    "vet_visit", "unresponsive", "limping", "lethargic", "not_touching_food",
+    "pacing", "drinking", "off_screen", "resting",
 ]
 
 # Span-adaptive tier cut-points (hours of elapsed footage). Overridable per call

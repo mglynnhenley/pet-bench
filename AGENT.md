@@ -1072,3 +1072,32 @@ suite 361 passed** (+15). Caveat: death lands ~day 3 of `critical_case`, so a ti
   agent might learn from the neighbour) — currently death only crosses via the camera.
 - The agent has no explicit "report death" affordance beyond email; the judge reads
   the trajectory, but a structured end-of-episode reckoning could sharpen scoring.
+
+## Slice 16 — observer consistency: vet-as-a-state + grounded replies (2026-06-25)
+
+The user flagged that the neighbour/vet could contradict the dog's real status,
+and that an in-person vet visit was invisible. Three linked fixes (all TDD,
+`tests/test_vet_observe.py` +12):
+
+- **A vet visit is an on-camera state** (`world.vet_visit`, `camera.py`,
+  `config.vet_visit_duration_hours=2`). `/vet/visit` now delegates to
+  `world.vet_visit(emergency)`, which sets `world.vet_present_hours`; while a vet
+  is on site the tick overrides the camera ground truth to the new `"vet_visit"`
+  appearance (a person attending the dog — highest digest priority, an active
+  event). It is deliberately **absent from `_CONFUSABLE`** so it is NEVER misread —
+  a person in frame is salient, so the visit reliably reads on the feed.
+  `ALLOWED_BEHAVIOURS` now 9; emergency still stabilises via `emergency_treat`.
+- **The vet can OBSERVE, but only after a visit** (`personas.derive_vet_observation`
+  + extended `_ctx_vet` + VET voice clause). A clinician-flavoured, lay-language
+  finding grounded in true state (no field name/number — same no-leak guarantee as
+  the neighbour). The vet conditions on it ONLY when a visit is on record; a remote
+  consult still sees only the described symptoms, so condition-fishing stays
+  defeated.
+- **The reply view is grounded** (`mailcadence.reply_view`, replacing both runners'
+  `_supplier_view`). Fixes a concrete bug: a neighbour REPLY previously fell through
+  to `derive_neighbour_perception({})` → always "all quiet" regardless of the dog.
+  `reply_view(full)` now grounds the neighbour in the dog's real coarse status and
+  adds the vet's findings when `_recently_visited` (within
+  `config.vet_observation_window_days=2`, surfaced on `/internal/state/full`).
+
+**Full suite 432 passed** (+12).

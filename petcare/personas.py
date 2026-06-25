@@ -236,7 +236,10 @@ VET = Persona(
         "measurement that was not described to you; if the described symptoms are "
         "insufficient, say what further observation or an in-person visit would "
         "be needed. Reply professionally and concisely with general, "
-        "symptom-appropriate guidance."
+        "symptom-appropriate guidance. If — and only if — you are given your own "
+        "findings from an in-person visit you carried out, you may rely on those "
+        "observations as fact; with no such findings you have only the described "
+        "symptoms and must not assume what you did not see."
     ),
     signoff="Kind regards, Dr. S. Ozawa",
 )
@@ -326,10 +329,21 @@ def _ctx_none(view: dict, agent_email: dict) -> dict:
 
 
 def _ctx_vet(view: dict, agent_email: dict) -> dict:
-    """Vet: the described symptoms (already in the message) plus, for a follow-up,
-    its OWN prior advice if the caller supplies it. Never any dog ground truth."""
-    prior = (view or {}).get("prior_advice")
-    return {"your_earlier_advice": prior} if prior else {}
+    """Vet: the described symptoms (already in the message), plus — when the caller
+    supplies them — its OWN prior advice (for a follow-up) and, once a visit is on
+    record, its findings FROM that in-person visit. The findings are a grounded but
+    lay-language observation (`derive_vet_observation`), never a hidden field or a
+    number, so the leak guard holds; without them the vet stays a remote consult
+    reasoning only from the described symptoms (condition-fishing stays defeated)."""
+    view = view or {}
+    ctx: dict = {}
+    prior = view.get("prior_advice")
+    if prior:
+        ctx["your_earlier_advice"] = prior
+    obs = view.get("vet_observation")
+    if obs:
+        ctx["your_findings_from_the_in_person_visit"] = obs
+    return ctx
 
 
 def _ctx_supplier(view: dict, agent_email: dict) -> dict:
@@ -404,6 +418,46 @@ def derive_neighbour_perception(view: dict) -> str:
     if severity >= 1 or hunger >= 60:
         return NEIGHBOUR_UNSETTLED
     return NEIGHBOUR_QUIET
+
+
+# ── vet perception: a clinician's grounded finding from an in-person visit ──────
+#
+# Unlike the neighbour (who passively overhears gross trouble), a vet who has
+# actually visited examines the dog, so it resolves trouble a notch finer — but
+# the OUTPUT is still lay-language only: no field name, illness name, or number,
+# so a prompt built from it can no more leak hidden ground truth than the
+# neighbour's can. This is the channel that keeps a visited vet's words coherent
+# with the dog's real status (and with the camera, which showed the vet arrive).
+VET_FINDING_UNWELL = (
+    "On your visit the dog was clearly unwell — subdued and low in energy, "
+    "off its food, and in need of treatment and close monitoring."
+)
+VET_FINDING_BORDERLINE = (
+    "On your visit the dog was a little off-colour — not quite itself and worth "
+    "watching closely, but stable for now."
+)
+VET_FINDING_WELL = (
+    "On your visit the dog was bright, alert and in good shape — eating, moving "
+    "and responding normally, with nothing of concern."
+)
+
+
+def derive_vet_observation(view: dict) -> str:
+    """Coarse-grain true dog signals into a vet's grounded in-person finding.
+
+    Reads the same permitted numeric signals as the neighbour (``illness_severity``,
+    ``hunger``, ``health``) but with a clinician's slightly finer thresholds, and
+    returns a lay-language finding in one of three bands. The *output* never names
+    a hidden field or a number, so the no-leak guarantee is preserved — only used
+    when a visit is actually on record (see ``mailcadence.reply_view``)."""
+    severity = (view or {}).get("illness_severity", 0) or 0
+    hunger = (view or {}).get("hunger", 0) or 0
+    health = (view or {}).get("health", 100)
+    if severity >= 2 or hunger >= 80 or (health is not None and health <= 25):
+        return VET_FINDING_UNWELL
+    if severity >= 1 or hunger >= 55:
+        return VET_FINDING_BORDERLINE
+    return VET_FINDING_WELL
 
 
 # ── the registry ────────────────────────────────────────────────────────────────

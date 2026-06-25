@@ -81,6 +81,7 @@ class World:
     camera_history: list = field(default_factory=list)    # past transcripts
     camera_live: str = ""                                 # 'right now' single-moment snapshot
     death_event: dict | None = None                       # set once if Buddy dies (soft terminal)
+    vet_present_hours: int = 0                             # hours a vet is still on site (camera shows them)
 
     # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
     # new_world. An empty/None registry makes every dynamics hook a no-op.
@@ -223,6 +224,19 @@ class World:
             if key == "critical":
                 self.dog.health = self.config.critical_health_threshold
 
+    def vet_visit(self, emergency: bool = False) -> bool:
+        """Record an on-site vet visit — a physical, observed event.
+
+        A person is now in the home, so the camera shows a vet attending the dog
+        (`"vet_visit"`) for the next `vet_visit_duration_hours`; this is the same
+        truth the vet itself can later speak to (`personas.derive_vet_observation`,
+        wired into its reply context once a visit is on record). An *emergency*
+        visit is on-site care and additionally stabilises a critical dog; a routine
+        visit is assessment only. Returns whether the visit stabilised the dog."""
+        self.vet_present_hours = max(self.vet_present_hours,
+                                     self.config.vet_visit_duration_hours)
+        return self.emergency_treat() if emergency else False
+
     def emergency_treat(self) -> bool:
         """Emergency-vet on-site stabilisation: knock the illness down, lift
         health clear of the critical line, reset the mortality clock, and count it
@@ -349,6 +363,12 @@ class World:
         from petcare.camera import (  # lazy: avoid import cycle
             apply_vision_noise, derive_visible_behaviour)
         self._cam_vb = derive_visible_behaviour(self.dog)
+        # A vet on site is the most salient thing in the frame — a person with the
+        # dog overrides whatever the dog alone would have looked like, and it is
+        # never misread (see camera._CONFUSABLE), so the visit reads on the feed.
+        if self.vet_present_hours > 0:
+            self._cam_vb = "vet_visit"
+            self.vet_present_hours -= 1
         self._cam_offline = (cfg.camera_offline_prob > 0
                              and self.rng.random() < cfg.camera_offline_prob)
         if self._cam_offline:

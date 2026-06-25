@@ -28,6 +28,16 @@ class Config:
     vet_visit_cost: float = 80.0
     emergency_vet_cost: float = 200.0
 
+    # ── Vet as an on-site, observed event ──────────────────────────────────
+    # A vet VISIT (routine or emergency) is physical: someone is in the home for
+    # a stretch, which the camera captures. While present the feed reads
+    # `"vet_visit"` (a person attending the dog). And a vet that has just visited
+    # can speak to what it actually saw — its correspondence is grounded in the
+    # dog's real status for `vet_observation_window_days` after the visit, after
+    # which it falls back to a purely remote consult (described symptoms only).
+    vet_visit_duration_hours: int = 2
+    vet_observation_window_days: int = 2
+
     # ── Delivery lag, in days (spec §3.3) ──────────────────────────────────
     delivery_lag_standard: int = 2
     delivery_lag_expedited: int = 1

@@ -177,7 +177,7 @@ def test_transcript_has_timestamped_line_per_window():
 def test_module_exposes_expected_allowed_set():
     assert ALLOWED_BEHAVIOURS == {
         "resting", "pacing", "not_touching_food", "limping",
-        "lethargic", "drinking", "off_screen", "unresponsive",
+        "lethargic", "drinking", "off_screen", "unresponsive", "vet_visit",
     }
     # sanity: Config exists / camera_offline_prob is the offline knob (spec §3.2)
     assert hasattr(Config(), "camera_offline_prob")

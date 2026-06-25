@@ -42,7 +42,7 @@ from petcare.camera import (_SCENE_PHRASINGS, Clip, build_windows,
                             render_live_snapshot)
 from petcare.config import DEFAULT_EMAIL_CADENCE
 from petcare.mailcadence import (CadenceState, compute_signals, inbound_view,
-                                 note_fired, note_outbound)
+                                 note_fired, note_outbound, reply_view)
 from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
@@ -373,7 +373,7 @@ class EpisodeRunner:
         if not self._outbox:
             return delivered
         model = self._responder()
-        view = self._supplier_view(self.get("/internal/state/full"))
+        view = reply_view(self.get("/internal/state/full"))
         for out in self._outbox:
             role = identify_counterparty(out.get("to", ""))
             ctx = personas.context_for(role, view)
@@ -393,20 +393,6 @@ class EpisodeRunner:
 
     # ── delivery: confirm orders that landed, by email (the only arrival signal
     #    besides the stock figures rising) ────────────────────────────────────────
-    @staticmethod
-    def _supplier_view(full):
-        """The supplier's permitted context: catalogue + a lay status line for any
-        order still outstanding (so it can answer 'where's my order?' honestly)."""
-        outstanding = [o for o in full.get("orders", []) if not o.get("arrived")]
-        if outstanding:
-            status = "; ".join(
-                f"{o['item']} x{o['qty']} (ordered day {o['placed_day']}"
-                + (", running late" if o.get("delayed") else "") + ")"
-                for o in outstanding)
-        else:
-            status = "no orders currently outstanding"
-        return {"catalogue": full.get("catalogue"), "order_status": status}
-
     @staticmethod
     def _newly_arrived(before_orders, after_orders):
         """Orders whose `arrived` flipped to True over the advance just taken."""

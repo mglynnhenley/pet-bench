@@ -29,7 +29,8 @@ from petcare.brief import build_checkin_prompt
 from petcare.camera import (Clip, build_windows, clips_from_rows,
                             render_camera_feed, render_live_snapshot)
 from petcare.config import DEFAULT_EMAIL_CADENCE
-from petcare.mailcadence import CadenceState, compute_signals, inbound_view, note_fired
+from petcare.mailcadence import (CadenceState, compute_signals, inbound_view,
+                                 note_fired, reply_view)
 from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
@@ -373,20 +374,6 @@ def _deliver(from_addr: str, to: str, subject: str, body: str):
         pass
 
 
-def _supplier_view(full: dict) -> dict:
-    """The supplier's permitted context: catalogue + a lay status line for any
-    order still outstanding (so it can answer 'where's my order?' honestly)."""
-    outstanding = [o for o in full.get("orders", []) if not o.get("arrived")]
-    if outstanding:
-        status = "; ".join(
-            f"{o['item']} x{o['qty']} (ordered day {o['placed_day']}"
-            + (", running late" if o.get("delayed") else "") + ")"
-            for o in outstanding)
-    else:
-        status = "no orders currently outstanding"
-    return {"catalogue": full.get("catalogue"), "order_status": status}
-
-
 def _newly_arrived(before_orders: list, after_orders: list) -> list:
     """Orders whose `arrived` flipped to True over the advance just taken."""
     out = []
@@ -435,7 +422,7 @@ async def _deliver_replies(model, replied: set, seed: int = 0) -> None:
     async with httpx.AsyncClient() as client:
         r = await client.get(f"{MAILHOG_API}/api/v2/messages?limit=50")
         full = (await client.get(f"{PET_API}/internal/state/full")).json()
-    view = _supplier_view(full)
+    view = reply_view(full)
     items = r.json().get("items", [])
     mail_log = _mail_log_from_mailhog(items)
     for m in items:

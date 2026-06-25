@@ -345,9 +345,11 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                   "emergency": body.emergency, "cost": cost}
         app.state.vet_records.append(record)
         _record_action("vet_visit", emergency=body.emergency, cost=cost)
-        # An emergency visit is on-site care: it stabilises the dog (pulls it back
-        # from the critical line). A routine visit is assessment only.
-        stabilised = world.emergency_treat() if body.emergency else False
+        # An on-site visit is a physical, observed event: a vet is now in the home
+        # (the camera shows them for a stretch — world.vet_present_hours), and an
+        # emergency visit additionally stabilises a critical dog. A routine visit
+        # is assessment only.
+        stabilised = world.vet_visit(emergency=body.emergency)
         return {"ok": True, "emergency": body.emergency, "cost": cost,
                 **({"stabilised": True} if stabilised else {}),
                 **({"note": note} if note else {})}
@@ -411,6 +413,10 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             # honour per-scenario overrides (e.g. demanding_owner) when scheduling
             # unsolicited mail via petcare.mailflow / petcare.mailcadence.
             "cadence": world.config.cadence,
+            # how long after an in-person visit the vet can still speak to what it
+            # saw (NOT agent-facing; mailcadence.reply_view reads it to ground a
+            # recently-visited vet's correspondence in the dog's real status).
+            "vet_observation_window_days": world.config.vet_observation_window_days,
             "account": {
                 "engagement_fee": world.account.engagement_fee,
                 "care_float": world.account.care_float,

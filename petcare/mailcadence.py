@@ -101,6 +101,59 @@ def note_fired(state: CadenceState, fired: list[str], now_h: float) -> CadenceSt
     return state
 
 
+def _order_status(orders: list[dict]) -> str:
+    """A lay, one-line status of any outstanding order (so the supplier can answer
+    'where's my order?' honestly). No arrival date — that stays hidden."""
+    outstanding = [o for o in orders if not o.get("arrived")]
+    if not outstanding:
+        return "no orders currently outstanding"
+    return "; ".join(
+        f"{o['item']} x{o['qty']} (ordered day {o['placed_day']}"
+        + (", running late" if o.get("delayed") else "") + ")"
+        for o in outstanding)
+
+
+def _recently_visited(full: dict) -> bool:
+    """True if a vet did an in-person visit recently enough to still speak to what
+    it saw. Day-granular (vet records carry a day, not an hour); the window is
+    `vet_observation_window_days`, defaulting to the Config value."""
+    day = full.get("day", 0)
+    window = full.get("vet_observation_window_days")
+    if window is None:
+        from petcare.config import Config  # lazy: keep this module Inspect-free
+        window = Config().vet_observation_window_days
+    return any(r.get("kind") == "visit" and day - r.get("day", 0) <= window
+               for r in full.get("vet_records", []))
+
+
+def reply_view(full: dict) -> dict:
+    """The PERMITTED reply context for ALL correspondents, built from full state.
+
+    Both runners feed this to ``personas.context_for(role, view)``, which narrows
+    it per role. Unlike a bare supplier view it GROUNDS the in-person observers in
+    the dog's real status, so their replies can't contradict it:
+
+      • supplier  -> catalogue + a lay outstanding-order status;
+      • neighbour -> a salience-gated lay observation of the REAL dog (not a blanket
+        'all quiet' — the bug this fixes);
+      • vet       -> its findings from a recent in-person visit, and ONLY then (a
+        remote consult still sees only the described symptoms).
+
+    Every grounded string is lay-language via the perception derivations, so the
+    no-leak guarantee holds: no hidden field name or number reaches a prompt."""
+    dog = full.get("dog", {})
+    dog_view = {"illness_severity": dog.get("illness_severity"),
+                "hunger": dog.get("hunger"), "health": dog.get("health")}
+    view = {
+        "catalogue": full.get("catalogue"),
+        "order_status": _order_status(full.get("orders", [])),
+        "neighbour_observation": personas.derive_neighbour_perception(dog_view),
+    }
+    if _recently_visited(full):
+        view["vet_observation"] = personas.derive_vet_observation(dog_view)
+    return view
+
+
 def inbound_view(trigger_key: str, dog_view: dict, catalogue: list,
                  mail: list[Mail]) -> dict:
     """The PERMITTED context for one unsolicited email, reusing each role's input
