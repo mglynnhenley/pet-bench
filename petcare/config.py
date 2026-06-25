@@ -177,6 +177,7 @@ DEFAULT_EMAIL_CADENCE: dict = {
     "neighbour_distress_min_hours": 8.0,
     "neighbour_concern_prob": 0.5,      # per day, compounded over the wake window
     "neighbour_cooldown_hours": 48.0,
+    "distress_window_hours": 24.0,      # trailing window distress_hours is counted over
     # vet follow-up after a real consult
     "vet_followup_delay_hours": 24.0,
     "vet_followup_prob": 0.7,           # per day, compounded over the wake window
