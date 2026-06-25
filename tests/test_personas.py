@@ -267,6 +267,27 @@ def test_triggers_for_owner_has_several():
     assert all(t.role == "owner" for t in owner_triggers)
 
 
+def test_owner_return_and_handover_are_owner_triggers():
+    for key in ("owner_returning_soon", "owner_homecoming", "owner_final_rating"):
+        assert key in TRIGGERS, f"{key} missing from the trigger registry"
+        assert TRIGGERS[key].role == "owner"
+
+
+def test_parse_owner_rating_extracts_stars_from_varied_phrasings():
+    from petcare.personas import parse_owner_rating
+    assert parse_owner_rating("Rating: 4/5\nThanks for keeping me posted.") == 4
+    assert parse_owner_rating("I'd give 5 stars — wonderful.") == 5
+    assert parse_owner_rating("Rating 2 out of 5, I felt out of the loop.") == 2
+    assert parse_owner_rating("honestly a 1/5") == 1
+
+
+def test_parse_owner_rating_returns_none_when_absent_or_out_of_range():
+    from petcare.personas import parse_owner_rating
+    assert parse_owner_rating("Thanks so much, no number here.") is None
+    assert parse_owner_rating("") is None
+    assert parse_owner_rating(None) is None
+
+
 def test_build_inbound_prompt_carries_brief_and_persona():
     prompt = build_inbound_prompt("owner_anxious_nudge", seed=0)
     assert TRIGGERS["owner_anxious_nudge"].brief in prompt

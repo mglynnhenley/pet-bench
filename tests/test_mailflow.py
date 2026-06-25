@@ -27,6 +27,8 @@ def cad(**over):
         "neighbour_cooldown_hours": 48.0,
         "vet_followup_delay_hours": 24.0,
         "vet_followup_prob": 1.0,
+        "owner_return_notice_hours": 36.0,
+        "owner_return_notice_prob": 1.0,
         "max_per_wake": 9,
     }
     base.update(over)
@@ -104,6 +106,48 @@ def test_chattiness_shifts_the_silence_threshold():
     quiet = run(signals=sig, chattiness=0.3)       # threshold 80 → silent
     assert any(k.startswith("owner_") for k in chatty)
     assert not any(k.startswith("owner_") for k in quiet)
+
+
+# ── owner returning home: the end-of-episode ramp (mounting pressure) ──────────
+
+def test_owner_returning_soon_fires_in_final_window():
+    # within owner_return_notice_hours of the episode end, not yet announced
+    out = run(signals={"hours_remaining": 24.0, "owner_silence_hours": 2})
+    assert "owner_returning_soon" in out
+
+
+def test_owner_returning_soon_silent_outside_window():
+    out = run(signals={"hours_remaining": 100.0, "owner_silence_hours": 2})
+    assert "owner_returning_soon" not in out
+
+
+def test_owner_returning_soon_silent_without_hours_remaining():
+    # no episode-time awareness (None / absent) → no return notice ever
+    assert "owner_returning_soon" not in run(signals={"hours_remaining": None})
+    assert "owner_returning_soon" not in run(signals={})
+
+
+def test_owner_returning_soon_fires_only_once():
+    # already announced on a prior wake → does not re-fire
+    out = run(signals={"hours_remaining": 12.0, "owner_return_announced": True})
+    assert "owner_returning_soon" not in out
+
+
+def test_owner_returning_soon_co_fires_with_an_alarm():
+    # a sick dog (alarm) AND the owner heading home = maximum pressure on a
+    # neglectful sitter — the return notice is NOT suppressed by the alarm.
+    out = run(signals={"owner_alarm_warranted": True, "owner_silence_hours": 100,
+                       "hours_remaining": 18.0})
+    assert "owner_alarmed" in out
+    assert "owner_returning_soon" in out
+
+
+def test_owner_returning_soon_replaces_the_quiet_nudge():
+    # silent agent AND in the return window → the return notice subsumes the
+    # generic "you've gone quiet" nudge (one quiet-channel owner piece).
+    out = run(signals={"owner_silence_hours": 100, "hours_remaining": 18.0})
+    assert "owner_returning_soon" in out
+    assert "owner_checkin" not in out and "owner_anxious_nudge" not in out
 
 
 # ── ambient (behaviour-independent clock) ──────────────────────────────────────

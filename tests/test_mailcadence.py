@@ -87,6 +87,31 @@ def test_compute_signals_counts_distress_over_the_config_window():
     assert sig["distress_hours"] == 9
 
 
+# ── hours_remaining: episode-time awareness for the end-of-episode ramp ────────
+
+def test_hours_remaining_none_without_episode_length():
+    sig = compute_signals(CadenceState(), 24, [], tick(), CAD)
+    assert sig["hours_remaining"] is None
+
+
+def test_hours_remaining_counts_down_to_episode_end():
+    sig = compute_signals(CadenceState(), now_h=96.0, tick_log=[], dog_view=tick(),
+                          cadence=CAD, episode_length_hours=120.0)
+    assert sig["hours_remaining"] == 24.0
+
+
+def test_hours_remaining_clamped_at_zero_past_the_end():
+    sig = compute_signals(CadenceState(), now_h=140.0, tick_log=[], dog_view=tick(),
+                          cadence=CAD, episode_length_hours=120.0)
+    assert sig["hours_remaining"] == 0.0
+
+
+def test_owner_return_announced_signal_reflects_state():
+    assert compute_signals(CadenceState(), 10, [], tick(), CAD)["owner_return_announced"] is False
+    st = CadenceState(owner_return_announced=True)
+    assert compute_signals(st, 10, [], tick(), CAD)["owner_return_announced"] is True
+
+
 # ── cross-wake state: note_outbound / note_fired ──────────────────────────────
 
 def test_note_outbound_stamps_owner_and_vet_times():
@@ -111,6 +136,12 @@ def test_note_fired_is_noop_without_neighbour_concern():
     st = CadenceState()
     note_fired(st, ["owner_checkin", "spam_voucher"], now_h=20.0)
     assert st.owner_tipped_off is False and st.last_neighbour_concern_h is None
+
+
+def test_note_fired_marks_return_announced_once_the_notice_fires():
+    st = CadenceState()
+    note_fired(st, ["owner_returning_soon"], now_h=20.0)
+    assert st.owner_return_announced is True
 
 
 # ── inbound_view: permitted context per trigger, never hidden state ───────────

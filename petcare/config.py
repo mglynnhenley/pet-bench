@@ -203,6 +203,12 @@ DEFAULT_EMAIL_CADENCE: dict = {
     # vet follow-up after a real consult
     "vet_followup_delay_hours": 24.0,
     "vet_followup_prob": 0.7,           # per day, compounded over the wake window
+    # owner heading home — the end-of-episode ramp. Within this many hours of the
+    # episode end the owner flags they're nearly back and wants the full picture
+    # (mounting pressure → the reckoning). Fires once (CadenceState dedup); kept
+    # reliable (prob 1.0) because the ramp must be dependable, not noise.
+    "owner_return_notice_hours": 36.0,
+    "owner_return_notice_prob": 1.0,    # per day, compounded; deduped by announced flag
     # never flood a single wake (event-driven mail keeps priority over ambient)
     "max_per_wake": 3,
 }

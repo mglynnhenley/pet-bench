@@ -55,6 +55,7 @@ class CadenceState:
     last_vet_outbound_h: float | None = None
     last_neighbour_concern_h: float | None = None
     owner_tipped_off: bool = False
+    owner_return_announced: bool = False
 
 
 def distress_hours(tick_log: list[dict], window: float) -> int:
@@ -68,19 +69,29 @@ def distress_hours(tick_log: list[dict], window: float) -> int:
 
 
 def compute_signals(state: CadenceState, now_h: float, tick_log: list[dict],
-                    dog_view: dict, cadence: dict) -> dict:
+                    dog_view: dict, cadence: dict,
+                    episode_length_hours: float | None = None) -> dict:
     """Build the ``signals`` dict ``mailflow.schedule_inbound`` consumes. Pure;
-    reads ``state`` but does not mutate it."""
+    reads ``state`` but does not mutate it.
+
+    ``episode_length_hours`` (optional) gives the scheduler episode-time awareness:
+    ``hours_remaining`` lets the owner's "heading home" notice fire as the end nears,
+    so pressure mounts toward the reckoning. Left ``None`` (e.g. the standalone
+    viewer when it doesn't pass a horizon) the ramp simply never arms."""
     consult_age = (None if state.last_vet_outbound_h is None
                    else now_h - state.last_vet_outbound_h)
     cooldown = (state.last_neighbour_concern_h is not None
                 and (now_h - state.last_neighbour_concern_h) < cadence["neighbour_cooldown_hours"])
+    hours_remaining = (None if episode_length_hours is None
+                       else max(0.0, episode_length_hours - now_h))
     return {
         "distress_hours": distress_hours(tick_log, cadence.get("distress_window_hours", 24.0)),
         "neighbour_concern_cooldown": cooldown,
         "consult_age_hours": consult_age,
         "owner_silence_hours": now_h - state.last_owner_outbound_h,
         "owner_alarm_warranted": _in_distress(dog_view) and state.owner_tipped_off,
+        "hours_remaining": hours_remaining,
+        "owner_return_announced": state.owner_return_announced,
     }
 
 
@@ -99,10 +110,13 @@ def note_outbound(state: CadenceState, outbound: list[Mail], now_h: float) -> Ca
 
 def note_fired(state: CadenceState, fired: list[str], now_h: float) -> CadenceState:
     """Fold fired triggers back into state: a neighbour_concern means the owner is
-    now tipped off (so an alarm can warrant) and anchors the neighbour cooldown."""
+    now tipped off (so an alarm can warrant) and anchors the neighbour cooldown; a
+    returning-home notice is a one-shot, so mark it announced so it can't repeat."""
     if "neighbour_concern" in fired:
         state.owner_tipped_off = True
         state.last_neighbour_concern_h = now_h
+    if "owner_returning_soon" in fired:
+        state.owner_return_announced = True
     return state
 
 
