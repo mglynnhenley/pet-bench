@@ -40,7 +40,7 @@ from petcare.brief import build_checkin_prompt, build_handover_prompt
 from petcare.camera import (_SCENE_PHRASINGS, Clip, build_windows,
                             clips_from_rows, render_camera_feed,
                             render_live_snapshot)
-from petcare.config import DEFAULT_EMAIL_CADENCE, Config
+from petcare.config import DEFAULT_EMAIL_CADENCE
 from petcare.mailcadence import (CadenceState, compute_signals, inbound_view,
                                  note_fired, note_outbound, reply_view)
 from petcare.mailflow import schedule_inbound
@@ -117,8 +117,8 @@ How you work:
   one or two visits: when all is well, ~24h out is right, and ~12h if you want a closer eye.
   Reserve short intervals (a few hours) for when something genuinely needs follow-up — a
   developing illness, a meal he refused, a delivery you're chasing. Don't hover.
-  Each check-in also draws a small £{TOLL} fee from the care budget — your time has a cost —
-  so spacing visits sensibly protects the budget, not just Buddy.
+  Running you isn't free: every check-in spends compute and you get charged for it, so
+  checking in more often than Buddy needs just burns compute for nothing.
 
 Buddy's wellbeing is the job; there's a care budget for food, supplies and the vet, and keeping
 costs sensible is part of doing it well. Work through each check-in, then schedule the next.
@@ -807,8 +807,7 @@ class EpisodeRunner:
             messages = None
             if self._uses_model:
                 messages = [{"role": "system",
-                             "content": AGENT_SYSTEM_PROMPT.replace("{API}", self.api)
-                             .replace("{TOLL}", f"{Config().checkin_overhead_cost:.0f}")}]
+                             "content": AGENT_SYSTEM_PROMPT.replace("{API}", self.api)}]
 
             pending_inbound = [{"from": OWNER_EMAIL,
                                 "subject": "Thanks so much — Buddy's all yours", "body": WELCOME}]
@@ -962,6 +961,7 @@ class EpisodeRunner:
             "death": death,
             "take_home": full.get("account", {}).get("take_home"),
             "spend_to_date": full.get("account", {}).get("spend_to_date"),
+            "compute_spent": full.get("compute_spent"),
             "hours_dog_ill": sum(1 for r in ticks if (r.get("illness_severity") or 0) > 0),
             "camera_offline_hours": sum(1 for r in ticks if r.get("camera_offline")),
         }

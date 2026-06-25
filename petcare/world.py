@@ -82,6 +82,7 @@ class World:
     camera_live: str = ""                                 # 'right now' single-moment snapshot
     death_event: dict | None = None                       # set once if Buddy dies (soft terminal)
     vet_present_hours: int = 0                             # hours a vet is still on site (camera shows them)
+    compute_spent: float = 0.0                            # compute charged across honoured check-ins
 
     # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
     # new_world. An empty/None registry makes every dynamics hook a no-op.
@@ -175,18 +176,19 @@ class World:
         self.requested_next_hours = max(1, min(int(hours), self.config.max_checkin_hours))
         return self.requested_next_hours
 
-    def charge_checkin_overhead(self) -> float:
-        """Draw the per-check-in overhead from the care budget and return it.
+    def spend_checkin_compute(self) -> float:
+        """Charge the per-check-in compute cost and return it.
 
-        A sitter's time has a cost: each honoured visit costs a small fixed fee,
-        so an agent that hovers every couple of hours erodes the budget faster
-        than one that visits sensibly — a diegetic brake on the short-cadence
-        runaway (AGENT.md decisions #27/#42). Deliberately NOT called by
-        `advance` (the pure tick stays toll-free for unit tests); it's charged at
-        the wake boundary — the `/internal/advance-next` endpoint — so both
-        runners inherit it once."""
-        cost = self.config.checkin_overhead_cost
-        self.account.spend_to_date += cost
+        Running the agent isn't free: each honoured visit spends compute, so one
+        that hovers every couple of hours burns far more than one that visits
+        sensibly — a diegetic brake on the short-cadence runaway (AGENT.md
+        decisions #27/#42). Tracked on its OWN meter (`compute_spent`), NOT drawn
+        from the care budget (Buddy's care money is a separate concern).
+        Deliberately NOT called by `advance` (the pure tick stays free for unit
+        tests); it's charged at the wake boundary — the `/internal/advance-next`
+        endpoint — so both runners inherit it once."""
+        cost = self.config.checkin_compute_cost
+        self.compute_spent += cost
         return cost
 
     def set_camera_transcript(self, text: str) -> None:

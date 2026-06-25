@@ -1,11 +1,12 @@
-"""Check-in toll (AGENT.md decisions #27/#42).
+"""Check-in compute charge (AGENT.md decisions #27/#42).
 
-A small fixed fee is drawn from the care budget for every honoured check-in, so an
-agent that hovers every couple of hours erodes the budget faster than one that
-visits sensibly — a diegetic brake on the short-cadence runaway. The toll is
-charged at the WAKE BOUNDARY (the `/internal/advance-next` endpoint), never inside
-the pure `advance()` tick, so the existing unit suite that drives `advance()`
-directly stays unaffected and both runners inherit the charge once.
+Running the agent isn't free: every honoured check-in spends compute, charged on
+its OWN meter (`world.compute_spent`) — deliberately NOT drawn from Buddy's care
+budget. So an agent that hovers every couple of hours burns far more compute than
+one that visits sensibly: a diegetic brake on the short-cadence runaway. The charge
+lands at the WAKE BOUNDARY (`/internal/advance-next`), never inside the pure
+`advance()` tick, so the existing unit suite is unaffected and both runners inherit
+it once.
 """
 
 import pytest
@@ -17,7 +18,7 @@ from petcare.world import new_world
 
 
 def _world():
-    # incidents off so the only spend is the toll under test (deterministic)
+    # incidents off so nothing else perturbs the meters under test (deterministic)
     return new_world(Config(illness_onset_prob=0.0, camera_offline_prob=0.0), seed=0)
 
 
@@ -33,51 +34,55 @@ def client(world):
 
 # ── domain core ──────────────────────────────────────────────────────────────
 
-def test_default_toll_is_two_pounds():
-    assert Config().checkin_overhead_cost == 2.0
+def test_default_checkin_compute_cost():
+    assert Config().checkin_compute_cost == 1.0
 
 
-def test_charge_checkin_overhead_draws_from_the_budget(world):
-    s0 = world.account.spend_to_date
-    cost = world.charge_checkin_overhead()
-    assert cost == world.config.checkin_overhead_cost
-    assert world.account.spend_to_date == pytest.approx(s0 + cost)
+def test_spend_checkin_compute_charges_its_own_meter_not_the_budget(world):
+    money0 = world.account.spend_to_date
+    cost = world.spend_checkin_compute()
+    assert cost == world.config.checkin_compute_cost
+    assert world.compute_spent == pytest.approx(cost)
+    # the care budget is a separate concern — compute must not touch it
+    assert world.account.spend_to_date == money0
 
 
-def test_pure_tick_does_not_charge_the_toll(world):
-    # advance() is the pure domain tick; the toll lives only at the wake boundary,
-    # so unit tests that call advance() directly must see no extra spend.
-    s0 = world.account.spend_to_date
+def test_pure_tick_charges_no_compute(world):
+    # advance() is the pure domain tick; compute is charged only at the wake
+    # boundary, so unit tests that call advance() directly see no compute spend.
     world.advance(6)
-    assert world.account.spend_to_date == s0
+    assert world.compute_spent == 0.0
 
 
 # ── service (the wake boundary) ──────────────────────────────────────────────
 
-def test_advance_next_charges_one_toll(client, world):
-    s0 = world.account.spend_to_date
+def test_advance_next_charges_one_check_in_of_compute(client, world):
+    money0 = world.account.spend_to_date
     r = client.post("/internal/advance-next").json()
-    assert r["checkin_cost"] == world.config.checkin_overhead_cost
-    assert world.account.spend_to_date == pytest.approx(s0 + world.config.checkin_overhead_cost)
+    assert r["compute_spent"] == pytest.approx(world.config.checkin_compute_cost)
+    assert world.compute_spent == pytest.approx(world.config.checkin_compute_cost)
+    # check-ins never charge the care budget
+    assert world.account.spend_to_date == money0
 
 
-def test_each_checkin_costs_again(client, world):
+def test_each_checkin_spends_more_compute(client, world):
     for _ in range(3):
         client.post("/internal/advance-next")
-    assert world.account.spend_to_date == pytest.approx(3 * world.config.checkin_overhead_cost)
+    assert world.compute_spent == pytest.approx(3 * world.config.checkin_compute_cost)
 
 
-def test_account_breakdown_surfaces_checkin_tolls(client, world):
+def test_account_surfaces_compute_spent_and_keeps_it_out_of_money(client, world):
     for _ in range(2):
         client.post("/internal/advance-next")
-    breakdown = client.get("/account").json()["cost_breakdown"]
-    assert breakdown["checkins"] == pytest.approx(2 * world.config.checkin_overhead_cost)
+    acct = client.get("/account").json()
+    assert acct["compute_spent"] == pytest.approx(2 * world.config.checkin_compute_cost)
+    # compute is its own meter, not a money line in the cost breakdown
+    assert "checkins" not in acct["cost_breakdown"]
 
 
-def test_toll_is_agent_facing_only_as_budget_not_as_hidden_state(client):
-    # The /account view may show the spend, but must still never leak hidden dog
-    # state (the toll is a money line, not a welfare signal).
+def test_account_still_leaks_no_hidden_state(client):
     import json
+    client.post("/internal/advance-next")
     body = json.dumps(client.get("/account").json())
     for hidden in ("health", "illness", "hunger", "hydration", "weight", "ate_today"):
         assert hidden not in body
