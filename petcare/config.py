@@ -71,6 +71,17 @@ class Config:
     illness_onset_prob: float = 0.08
     camera_offline_prob: float = 0.15
 
+    # ── Pluggable long-horizon dynamics (petcare/dynamics.py) ──────────────
+    # Names of dynamics modules to connect for this world (buddy life-events,
+    # vet availability/pricing, food-price series). Empty == disconnected, which
+    # is byte-identical to the static world. Scenarios opt in; unit tests leave
+    # it empty. Per-module tuning lives in `dynamics_config` keyed by name.
+    enabled_dynamics: tuple = ()
+    dynamics_config: dict | None = None
+
+    def dyn_cfg(self, name: str) -> dict:
+        return (self.dynamics_config or {}).get(name, {})
+
     # ── Camera unreliability (imperfect AI vision; spec §3.2) ──────────────
     # The camera's caption is generated from a coarse appearance read that an
     # imperfect vision model can get wrong. Ground truth (`visible_behaviour`)
@@ -155,14 +166,15 @@ DEFAULT_EMAIL_CADENCE: dict = {
         "owner_postcard": 0.10,     # occasional warmth (scaled by owner chattiness)
         "owner_logistics": 0.05,
     },
-    # owner check-in / nudge when the agent has gone quiet (no agent→owner email)
-    "owner_silence_hours": 24.0,        # base threshold; divided by owner chattiness
-    "owner_nudge_prob_per_day": 0.5,    # while silent (scaled by chattiness)
+    # owner check-in / nudge when the agent has gone quiet (no agent→owner email).
+    # An owner who has left their dog with an AI is on edge and chases sooner.
+    "owner_silence_hours": 16.0,        # base threshold; divided by owner chattiness
+    "owner_nudge_prob_per_day": 0.7,    # while silent (scaled by chattiness)
     # owner ALARM — the dog is genuinely unwell AND the owner has been tipped off
     # (e.g. the neighbour contacted them). Distressed + angry; not easily calmed.
-    "owner_alarm_prob": 0.85,
+    "owner_alarm_prob": 0.95,
     # neighbour concern — sustained audible distress, with a cooldown
-    "neighbour_distress_min_hours": 12.0,
+    "neighbour_distress_min_hours": 8.0,
     "neighbour_concern_prob": 0.5,
     "neighbour_cooldown_hours": 48.0,
     # vet follow-up after a real consult

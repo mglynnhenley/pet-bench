@@ -63,6 +63,7 @@ class Account:
 class World:
     config: Config
     rng: random.Random
+    seed: int = 0                 # base RNG seed (for per-module derived streams)
     tick: int = 0                 # hours elapsed since the engagement began
     dog: Dog = field(default_factory=Dog)
     food_stock: float = 3.0       # days of food on hand
@@ -71,9 +72,14 @@ class World:
     account: Account = field(default_factory=lambda: Account(150.0, 150.0))
     tick_log: list[dict] = field(default_factory=list)   # per-hour ground truth
     daily_log: list[dict] = field(default_factory=list)  # per-completed-day snapshot
+    event_log: list = field(default_factory=list)         # dynamics ground truth (ScheduledEvent)
     requested_next_hours: int = 0                         # the agent's chosen sleep
     camera_transcript: str = ""                           # latest prose feed (captioner output)
     camera_history: list = field(default_factory=list)    # past transcripts
+
+    # pluggable long-horizon dynamics (petcare/dynamics.py); None until wired by
+    # new_world. An empty/None registry makes every dynamics hook a no-op.
+    dynamics: object = None
 
     # per-checkin pending actions (resolved by the tick)
     _dispensed: bool = False
@@ -92,6 +98,17 @@ class World:
     @property
     def hour(self) -> int:
         return self.tick % self.config.ticks_per_day
+
+    # ── pluggable dynamics support ─────────────────────────────────────────
+    def derive_rng(self, name: str) -> random.Random:
+        """An independent, reproducible RNG stream for a dynamics module.
+
+        Seeded from the world seed + the module name, so a module never draws
+        from (and thus never perturbs) the core tick's `self.rng` stream — adding
+        or removing a module leaves every other stream byte-identical.
+        """
+        from petcare.dynamics import derive_seed  # lazy: avoid import cycle
+        return random.Random(derive_seed(self.seed, name))
 
     # ── agent-driven actions ───────────────────────────────────────────────
     def dispense_food(self) -> None:
@@ -120,8 +137,13 @@ class World:
         if not expedited and self.rng.random() < self.config.delivery_delay_prob:
             lag += self.config.delivery_delay_days
             delayed = True
-        cost = self.config.food_delivery_cost + (
-            self.config.expedited_surcharge if expedited else 0.0)
+        # base delivery cost may be re-priced by the food_pricing module (price
+        # series / shocks); falls back to the static Config when disconnected.
+        base_cost = self.config.food_delivery_cost
+        pricing = self.dynamics.pricing() if self.dynamics is not None else None
+        if pricing is not None:
+            base_cost = pricing.delivery_cost(self, base_cost)
+        cost = base_cost + (self.config.expedited_surcharge if expedited else 0.0)
         order = Order(item=item, qty=qty, placed_day=self.day,
                       arrival_day=self.day + lag, expedited=expedited,
                       delayed=delayed, cost=cost)
@@ -204,6 +226,11 @@ class World:
         #    then advance illness (dose ≠ cure) and health
         self._maybe_onset_illness()
         self._advance_illness_one_hour()
+
+        # 4b. pluggable long-horizon dynamics apply whatever they have due this
+        #     hour (buddy life-events, etc.). No-op when no module is connected.
+        if self.dynamics is not None:
+            self.dynamics.on_hour(self)
 
         # underfeeding harm (per hour)
         if self.dog.hunger >= cfg.hunger_harm_threshold:
@@ -310,8 +337,16 @@ class World:
 
 def new_world(config: Config | None = None, seed: int = 0) -> World:
     cfg = config or Config()
-    return World(
+    world = World(
         config=cfg,
         rng=random.Random(seed),
+        seed=seed,
         account=Account(engagement_fee=cfg.engagement_fee, care_float=cfg.care_float),
     )
+    # Connect any opted-in dynamics modules and let them pre-sample their
+    # schedules. Empty `enabled_dynamics` (the default) yields an empty registry,
+    # so this is a no-op for the static world.
+    from petcare.dynamics import build_dynamics  # lazy: avoid import cycle
+    world.dynamics = build_dynamics(world, tuple(cfg.enabled_dynamics))
+    world.dynamics.build(world)
+    return world
