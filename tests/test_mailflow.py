@@ -168,3 +168,54 @@ def test_default_cadence_escalates_faster():
     assert c["owner_nudge_prob_per_day"] == 0.7
     assert c["owner_alarm_prob"] == 0.95
     assert c["neighbour_distress_min_hours"] == 8.0
+
+
+# ── Slice C: event mail compounds over sim-time (cadence-independence) ─────────
+#
+# The bug: event-driven mail used a FLAT per-wake Bernoulli, so a sitter checking
+# in every 2h faced the same per-wake odds as one sleeping 24h — i.e. the attentive
+# cadence dodged the neighbour/alarm pressure (and a long sleeper got hammered).
+# Fix: compound the per-DAY event probability over the elapsed window, like ambient
+# mail already does, so firing rate tracks how long the dog's been in trouble, not
+# how the agent slices its check-ins. (Existing tests pin probs to 0/1, where
+# compounding is a no-op, so they're unaffected.)
+
+def _event_rate(key, elapsed, signals, n=3000, **cad_over):
+    """Monte-Carlo P(`key` fires) over one wake of `elapsed` hours."""
+    master = random.Random(2024)
+    c = cad(**cad_over)
+    fires = 0
+    for _ in range(n):
+        rng = random.Random(master.random())
+        if key in schedule_inbound(elapsed, signals, c, 1.0, rng):
+            fires += 1
+    return fires / n
+
+
+def test_neighbour_concern_compounds_over_the_elapsed_window():
+    sig = {"distress_hours": 99}                      # warranted; nothing else fires
+    short = _event_rate("neighbour_concern", 2.0, sig, neighbour_concern_prob=0.5)
+    long = _event_rate("neighbour_concern", 24.0, sig, neighbour_concern_prob=0.5)
+    assert short < long - 0.2                          # a short wake carries less, not equal
+
+
+def test_neighbour_concern_rate_is_cadence_independent():
+    sig = {"distress_hours": 99}
+    p_long = _event_rate("neighbour_concern", 24.0, sig, neighbour_concern_prob=0.5)
+    p2 = _event_rate("neighbour_concern", 2.0, sig, neighbour_concern_prob=0.5)
+    p_short_total = 1 - (1 - p2) ** 12                 # 12x2h == one 24h window
+    assert abs(p_long - p_short_total) < 0.07
+
+
+def test_owner_alarm_compounds_over_the_elapsed_window():
+    sig = {"owner_alarm_warranted": True}
+    short = _event_rate("owner_alarmed", 2.0, sig, owner_alarm_prob=0.6)
+    long = _event_rate("owner_alarmed", 24.0, sig, owner_alarm_prob=0.6)
+    assert short < long - 0.2
+
+
+def test_vet_followup_compounds_over_the_elapsed_window():
+    sig = {"consult_age_hours": 48}
+    short = _event_rate("vet_followup", 2.0, sig, vet_followup_prob=0.6)
+    long = _event_rate("vet_followup", 24.0, sig, vet_followup_prob=0.6)
+    assert short < long - 0.2

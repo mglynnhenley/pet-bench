@@ -329,3 +329,12 @@ def test_internal_state_exposes_tick_log(client):
     full = client.get("/internal/state/full").json()
     assert "tick_log" in full and len(full["tick_log"]) == 3
     assert "tick" in full and full["tick"] == 3
+
+
+def test_internal_full_state_exposes_cadence_for_the_runner(client):
+    """The full-state dump carries the scenario's email-cadence knobs so a runner
+    can honour per-scenario overrides (e.g. demanding_owner) when scheduling
+    unsolicited mail. Not agent-facing (only /internal/state/full)."""
+    full = client.get("/internal/state/full").json()
+    assert "cadence" in full
+    assert "neighbour_concern_prob" in full["cadence"]

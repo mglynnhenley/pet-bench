@@ -561,8 +561,11 @@ def _format_context(context: dict | None) -> str:
     return "Context you are permitted to use:\n" + "\n".join(lines)
 
 
-def _assemble(persona: Persona, user_core: list[str], context: dict | None) -> str:
+def _assemble(persona: Persona, user_core: list[str], context: dict | None,
+              history: str | None = None) -> str:
     parts = list(user_core)
+    if history:
+        parts.append(history)
     block = _format_context(context)
     if block:
         parts.append(block)
@@ -575,13 +578,16 @@ def _assemble(persona: Persona, user_core: list[str], context: dict | None) -> s
 
 
 def build_reply_prompt(role: str, inbound: dict, context: dict | None = None,
-                       seed: int = 0) -> str:
+                       seed: int = 0, history: str | None = None) -> str:
     """Prompt for an in-character *reply* to the agent's outbound email.
 
     ``inbound`` is the agent's email as ``{"subject","body"}``. If ``context`` is
     not supplied it is left empty (the reactive caller — the responder — may pass
-    a context from :func:`context_for`). Contains only persona + the agent's own
-    words + permitted context — never the dog's hidden ground truth.
+    a context from :func:`context_for`). ``history`` is an optional pre-rendered
+    recap of this correspondent's prior thread (see ``mailmemory.render_history``)
+    so it can answer with memory of the exchange. Contains only persona + the
+    agent's own words + permitted context + prior correspondence — never the dog's
+    hidden ground truth.
     """
     persona = persona_for(role, seed)
     user_core = [
@@ -590,21 +596,24 @@ def build_reply_prompt(role: str, inbound: dict, context: dict | None = None,
         "Message:",
         inbound.get("body", ""),
     ]
-    return _assemble(persona, user_core, context)
+    return _assemble(persona, user_core, context, history=history)
 
 
 def build_inbound_prompt(trigger_key: str, view: dict | None = None,
-                         seed: int = 0) -> str:
+                         seed: int = 0, history: str | None = None) -> str:
     """Prompt for an *unsolicited* email of ``trigger_key`` from its sender.
 
     Resolves the trigger's role + persona, runs that role's input contract over
     ``view`` to gather its permitted context, and renders the situation brief.
-    Raises ``KeyError`` on an unknown trigger so wiring mistakes surface loudly.
+    ``history`` is an optional pre-rendered recap of this correspondent's prior
+    thread (see ``mailmemory.render_history``) so an unsolicited note can follow
+    on from earlier correspondence. Raises ``KeyError`` on an unknown trigger so
+    wiring mistakes surface loudly.
     """
     trig = TRIGGERS[trigger_key]
     persona = persona_for(trig.role, seed)
     context = context_for(trig.role, view, None)
-    return _assemble(persona, [trig.brief], context)
+    return _assemble(persona, [trig.brief], context, history=history)
 
 
 def inbound_subject(trigger_key: str) -> str:
@@ -613,13 +622,15 @@ def inbound_subject(trigger_key: str) -> str:
 
 
 async def generate_inbound(model, trigger_key: str, view: dict | None = None,
-                           seed: int = 0) -> dict:
+                           seed: int = 0, history: str | None = None) -> dict:
     """Render an unsolicited email of ``trigger_key`` via an injected async model.
 
-    Returns ``{"from_role", "subject", "body"}``. ``model`` is any object with
-    ``async def generate(prompt: str) -> str`` — tests inject a fake, production
-    injects the Inspect adapter.
+    Returns ``{"from_role", "subject", "body"}``. ``history`` is an optional
+    pre-rendered recap of this correspondent's prior thread (see
+    ``mailmemory.inbound_history``) so an unsolicited note can follow on naturally.
+    ``model`` is any object with ``async def generate(prompt: str) -> str`` — tests
+    inject a fake, production injects the Inspect adapter.
     """
     trig = TRIGGERS[trigger_key]
-    body = await model.generate(build_inbound_prompt(trigger_key, view, seed))
+    body = await model.generate(build_inbound_prompt(trigger_key, view, seed, history=history))
     return {"from_role": trig.role, "subject": trig.subject, "body": body}

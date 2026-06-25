@@ -172,14 +172,15 @@ DEFAULT_EMAIL_CADENCE: dict = {
     "owner_nudge_prob_per_day": 0.7,    # while silent (scaled by chattiness)
     # owner ALARM — the dog is genuinely unwell AND the owner has been tipped off
     # (e.g. the neighbour contacted them). Distressed + angry; not easily calmed.
-    "owner_alarm_prob": 0.95,
+    "owner_alarm_prob": 0.95,           # per day, compounded over the wake window
     # neighbour concern — sustained audible distress, with a cooldown
     "neighbour_distress_min_hours": 8.0,
-    "neighbour_concern_prob": 0.5,
+    "neighbour_concern_prob": 0.5,      # per day, compounded over the wake window
     "neighbour_cooldown_hours": 48.0,
+    "distress_window_hours": 24.0,      # trailing window distress_hours is counted over
     # vet follow-up after a real consult
     "vet_followup_delay_hours": 24.0,
-    "vet_followup_prob": 0.7,
+    "vet_followup_prob": 0.7,           # per day, compounded over the wake window
     # never flood a single wake (event-driven mail keeps priority over ambient)
     "max_per_wake": 3,
 }

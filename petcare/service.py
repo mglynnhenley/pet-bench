@@ -382,6 +382,10 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             # responder hands it to the supplier persona — list + private floors).
             # Re-priced live by the food_pricing module when connected.
             "catalogue": _live_catalogue(world),
+            # the scenario's email-cadence knobs (NOT agent-facing) so a runner can
+            # honour per-scenario overrides (e.g. demanding_owner) when scheduling
+            # unsolicited mail via petcare.mailflow / petcare.mailcadence.
+            "cadence": world.config.cadence,
             "account": {
                 "engagement_fee": world.account.engagement_fee,
                 "care_float": world.account.care_float,

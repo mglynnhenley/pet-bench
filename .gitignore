@@ -6,3 +6,5 @@ mailhog
 *.log
 .claude/settings.local.json
 .gstack/
+.venv/
+.context/
