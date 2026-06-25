@@ -518,6 +518,12 @@ class EpisodeRunner:
         add({"kind": "say", "text":
              ("Camera shows something worth acting on — taking care of it now."
               if worried else "Routine check-in: feed, water, top up supplies, then a short sleep.")})
+        # bring in any delivery left at the door — it isn't usable food until collected
+        # (arrived ≠ collected). The diligent sitter acts as its own doorkeeper.
+        if supplies.get("food_at_door", 0) or supplies.get("med_at_door", 0):
+            got = self.post("/door/collect").get("collected", {})
+            add({"kind": "tool", "tool": "POST /door/collect", "arg": "",
+                 "result": f"brought in the delivery from the door: {got}"})
         self.post("/care/feed")
         add({"kind": "tool", "tool": "POST /care/feed", "arg": "", "result": "dispensed a portion"})
         self.post("/care/water")
