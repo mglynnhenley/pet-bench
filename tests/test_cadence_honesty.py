@@ -55,10 +55,12 @@ def test_missing_schedule_is_flagged_as_defaulted(client, world):
 
 
 def test_failed_schedule_call_counts_as_defaulted(client, world):
-    # Reproduces the real failure: malformed JSON body -> 422 -> nothing scheduled.
-    r = client.post("/care/schedule-next", content='{"hours":3}}',
+    # A body with no readable hours value schedules nothing, so the wake is a
+    # default. (A merely malformed-but-unambiguous body like '{"hours":3}}' is
+    # now recovered instead — see tests/test_schedule_robustness.py.)
+    r = client.post("/care/schedule-next", content="not json at all",
                     headers={"Content-Type": "application/json"})
-    assert r.status_code == 422
+    assert r.json()["ok"] is False
     body = client.post("/internal/advance-next").json()
     assert body["used_default"] is True
 

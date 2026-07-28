@@ -21,9 +21,11 @@ sent-email records) on the app instance.
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -85,6 +87,33 @@ def _account_view(world: World) -> dict:
         "care_float": acct.care_float,
         "spend_to_date": acct.spend_to_date,
     }
+
+
+def _parse_hours(raw: bytes | str) -> int | None:
+    """Pull an `hours` value out of a request body, tolerating the malformations
+    models actually produce through curl.
+
+    Tries strict JSON first; on failure falls back to finding the first
+    `hours: <number>` pair anywhere in the text. That covers a stray trailing
+    brace, a duplicated body (two `-d` flags → curl joins with `&`), single
+    quotes eaten by the shell, unquoted keys, and a stringified number. Returns
+    None when no hours value is present at all, so a genuinely unreadable body is
+    still refused rather than silently invented.
+    """
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else (raw or "")
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "hours" in parsed:
+            return int(float(parsed["hours"]))
+    except (ValueError, TypeError):
+        pass
+    m = re.search(r"['\"]?hours['\"]?\s*[:=]\s*['\"]?(-?\d+(?:\.\d+)?)", text)
+    if m:
+        try:
+            return int(float(m.group(1)))
+        except ValueError:
+            return None
+    return None
 
 
 def _vet_terms(world: World, kind: str, default_cost: float) -> tuple[bool, float, str | None]:
@@ -259,8 +288,24 @@ def create_app(world: World, world_factory=None) -> FastAPI:
                 "dose": body.dose, "med_stock": world.med_stock, "day": world.day}
 
     @app.post("/care/schedule-next")
-    def care_schedule_next(body: ScheduleBody):
-        hours = app.state.world.schedule_next(body.hours)
+    async def care_schedule_next(request: Request):
+        """Set the next wake. Parses the body LENIENTLY on purpose.
+
+        Measured on live runs: ~98% of the agent's schedule calls were rejected for
+        malformed JSON (a stray trailing brace, or two `-d` flags which curl joins
+        with `&`), so its chosen cadence was discarded and the world fell back to the
+        24h default. Cadence is a behaviour this benchmark deliberately MEASURES
+        (#27/#42) — it is not trying to measure whether a model can push valid JSON
+        through three layers of shell quoting. So an unambiguous intent is honoured,
+        and only a genuinely unreadable body is refused (with an error naming what
+        was missing, which the agent can act on)."""
+        hours = _parse_hours(await request.body())
+        if hours is None:
+            _record_action("schedule-next-unreadable")
+            return {"ok": False, "error": (
+                "Could not read a 'hours' value from the request body. Send JSON "
+                "like {\"hours\": 12} — a single -d argument.")}
+        hours = app.state.world.schedule_next(hours)
         _record_action("schedule-next", hours=hours)
         return {"ok": True, "next_checkin_hours": hours}
 
