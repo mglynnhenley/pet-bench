@@ -1305,3 +1305,33 @@ rewritten to the new contract rather than deleted, keeping the emergency-vs-rout
 distinction they were really protecting.
 
 **Full suite: 552 passed** (+10, `test_vet_treats.py`).
+
+## Slice 21 — the agent's chosen cadence actually survives (2026-07-28)
+
+Slice 19 made the schedule fallback *honest*; this makes it *rare*, and closes the
+self-grading judge hole.
+
+**The measurement that forced it.** Across two live episodes, 36/39 then **55/56** of
+the agent's `POST /care/schedule-next` calls were rejected for malformed JSON — the
+model emitting a stray trailing brace, or two `-d` flags which curl joins with `&`
+(that is the exact `"Extra data" at position 12` signature in the original log,
+reproduced byte-for-byte). So the world fell back to `default_checkin_hours` ~98% of
+the time while cadence — a behaviour this benchmark *deliberately measures*
+(#27/#42) — was almost entirely typo.
+
+**Decision 53: parse the body leniently.** The eval is not trying to measure whether
+a model can push valid JSON through three layers of shell quoting. `_parse_hours`
+tries strict JSON, then falls back to the first `hours: <n>` pair anywhere in the
+text. That covers every malformation seen or reproduced (trailing brace, doubled
+body, `&`-joined bodies, shell-eaten quotes, unquoted key, stringified number). A
+body with **no** hours value is still refused — now with an error naming what was
+missing rather than a raw pydantic schema dump — and still marks the wake
+`used_default`. Recovered values are still clamped to `[1, max_checkin_hours]`.
+
+**The judge was grading itself.** `behaviour_judge` is the SOLE scorer and falls back
+to `--model` when `PETBENCH_GRADER` is unset, so the very first real run scored
+gpt-4o-mini with gpt-4o-mini and printed a reassuring `grader=default`.
+`run_petbench_local.sh` now warns loudly and prints `grader=SELF (see warning)`.
+
+**Full suite: 568 passed** (+16, `test_schedule_robustness.py`). One slice-19 test was
+updated: `'{"hours":3}}'` is now *recovered* rather than rejected, which is the point.
