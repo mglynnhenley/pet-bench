@@ -127,3 +127,26 @@ def test_emergency_lifts_health_further_than_a_routine_visit():
     routine.vet_visit(emergency=False)
     emerg.vet_visit(emergency=True)
     assert emerg.dog.health >= routine.dog.health
+
+
+# ── ANY attending vet leaves medication ────────────────────────────────────────
+#
+# Caught in a live run: 11 emails went to the emergency line and `med_stock` never
+# moved off 0, because leaving medication had been attached to the routine path
+# only. Continuity of care doesn't depend on which number the carer rang — if
+# anything an emergency attendance is MORE likely to leave something behind.
+
+@pytest.mark.parametrize("emergency", [False, True])
+def test_any_attending_vet_leaves_medication(emergency):
+    w = _sick()
+    before = w.med_stock
+    w.vet_visit(emergency=emergency)
+    assert w.med_stock == before + w.config.vet_visit_med_supply
+
+
+def test_a_visit_to_a_deceased_dog_leaves_nothing():
+    w = _sick()
+    w.dog.alive = False
+    before = w.med_stock
+    w.vet_visit(emergency=False)
+    assert w.med_stock == before
