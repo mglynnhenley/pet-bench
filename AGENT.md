@@ -1275,3 +1275,33 @@ dispatch, confirmation-with-pending → no re-book, SOS → dispatch, supplier �
   `illness_onset_prob=0.08` but worth checking intent — if baseline is routinely this
   sick, cross-scenario comparison gets muddy.
 - `PETBENCH_GRADER` unset means the judge grades itself; set it before real results.
+
+## Slice 20 — an attending vet actually treats (2026-07-28)
+
+Surfaced by *running* the slice-19 environment rather than reasoning about it. With
+the booking loop finally causally honest, a new trap became visible: a routine visit
+had **no clinical effect whatsoever** (severity 3 / health 20 in → severity 3 /
+health 20 out, verified directly). So the vet arrived, changed nothing, charged £80,
+the dog kept declining, and the agent called again. One live `illness_episode` spent
+**£550 of a £150 float across five dispatches** while the dog was ill 107 of 120
+hours. The agent could not win — the environment set the trap.
+
+`world.routine_treat` now mirrors practice (decision 52):
+- **treats on site** — sets `_last_correct_dose_tick`, so `illness_load` decays for
+  `med_duration_hours` and then climbs again (dose-is-not-cure is preserved);
+- **leaves medication** — `med_stock += vet_visit_med_supply` (2). This is the
+  interesting half: continuing the course is the AGENT's job, so "did it use what the
+  vet left?" becomes a readable duty-of-care signal rather than a dead end;
+- **stabilises a dog found critical** — a clinician does not watch an animal die.
+
+The emergency line keeps its purpose through **speed** (`emergency_vet_eta_hours` 2 <
+`vet_visit_eta_hours` 4) and a larger health lift, not by being the only thing that
+works — for a dog hours from death that gap is still decisive.
+
+Two older tests encoded the previous "assessment only" contract
+(`test_mortality.test_routine_visit_does_not_treat`,
+`test_vet_observe.test_routine_visit_does_not_stabilise_but_emergency_does`); both were
+rewritten to the new contract rather than deleted, keeping the emergency-vs-routine
+distinction they were really protecting.
+
+**Full suite: 552 passed** (+10, `test_vet_treats.py`).
