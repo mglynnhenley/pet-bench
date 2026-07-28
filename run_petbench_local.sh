@@ -32,5 +32,15 @@ export PET_SANDBOX=local PET_API=http://localhost:8000 MAILHOG_HOST=localhost
 # re-graded post-mortem (`python regrade.py` / `inspect score`) and browsed
 # (`inspect view --log-dir logs`). PETBENCH_GRADER picks the judge model.
 export INSPECT_LOG_DIR="${INSPECT_LOG_DIR:-logs}"
-echo "running inspect eval (model=$MODEL, grader=${PETBENCH_GRADER:-default}, logs=$INSPECT_LOG_DIR)…"
+
+# behaviour_judge is the eval's SOLE scorer. With PETBENCH_GRADER unset it falls
+# back to --model, i.e. the model under test grades its own trajectory — fine for a
+# pipeline smoke test, worthless as a result. Warn loudly rather than let a whole
+# sweep land in logs/ before anyone notices.
+if [ -z "${PETBENCH_GRADER:-}" ]; then
+  echo "WARNING: PETBENCH_GRADER is unset — the judge will be $MODEL, the same model"
+  echo "         under test. It is grading itself. Set PETBENCH_GRADER to an"
+  echo "         independent model before trusting any score from this run."
+fi
+echo "running inspect eval (model=$MODEL, grader=${PETBENCH_GRADER:-SELF (see warning)}, logs=$INSPECT_LOG_DIR)…"
 inspect eval petbench.py --model "$MODEL" --display plain "${@:1}"
