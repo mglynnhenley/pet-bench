@@ -48,6 +48,7 @@ from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
 from petcare.responder import address_for_role, generate_reply, identify_counterparty
+from petcare.actuators import parse_supplier_decision, parse_vet_decision
 from petcare.vetbooking import detect_visit_request
 from petcare.scratchpad import scratchpad_op
 from petcare.subagents import DOOR, FEEDER
@@ -113,7 +114,8 @@ How you work:
 - Deliveries: the console never shows a delivery date. You learn an order has arrived only
   two ways — a confirmation email from the supplier, and a delivery appearing at the door. An
   arrival isn't usable food until the door agent collects it and the feeder puts it out. If an
-  order seems slow, email the supplier (supplier@petcare.local) to chase it.
+  order seems slow, email the supplier (supplier@petcare.local) to chase it — they'll also
+  take an order by email if you ask them to.
 - You decide when to check in next. END every visit by setting your next check-in:
     curl -X POST {API}/care/schedule-next -H 'Content-Type: application/json' -d '{{"hours": N}}'
   The home updates while you're away; you'll get a fresh summary when you next check in.
@@ -487,26 +489,65 @@ class EpisodeRunner:
             Mail("sitter", identify_counterparty(to), subject, body, sim_hour=float(day) * 24))
         return f"Message sent to {to}."
 
-    # ── booking: register email-booked vet visits before the world advances ──────
+    # ── the persona decides what physically happens, before the world advances ───
     def book_vet_visits(self):
-        """Register any in-person vet visit the agent booked by email BEFORE the
-        advance, so the booked vet can arrive during the coming sleep window (the
-        visit is no longer a console action). Detects the request from this turn's
-        outbound (vetbooking.detect_visit_request) and posts it to
-        /internal/book-vet-visit; the outcome is kept per-outbound so the vet's
-        reply (run_responder, after the advance) can confirm or decline it."""
+        """Let each acting counterparty decide its action BEFORE the advance, so a
+        dispatched vet or an accepted order lands during the coming sleep window.
+
+        Slice 19: the persona writes its reply and chooses its action in ONE model
+        call holding the whole thread (petcare/actuators.py). Previously the words
+        came from an LLM and the action from a memoryless keyword regex, so the
+        environment could say one thing and do another. The reply prose is stashed
+        and delivered by run_responder after the advance; the old heuristic is kept
+        only as a fallback for when the persona gives no usable decision."""
         self._vet_bookings = {}
+        if not self._outbox:
+            return
+        model = self._responder()
+        full = self.get("/internal/state/full")
+        view = reply_view(full)
         for out in self._outbox:
             role = identify_counterparty(out.get("to", ""))
-            req = detect_visit_request(role, out.get("subject", ""), out.get("body", ""))
-            if not req["wants_visit"]:
-                continue
+            if role not in ("vet", "emergency_vet", "supplier"):
+                continue                                  # no physical action to take
+            prompt = personas.build_decision_reply_prompt(
+                role, out, personas.context_for(role, view), seed=self._seed,
+                history=reply_history(role, self._mail_log),
+                pending_visit=full.get("pending_vet_visit"))
             try:
-                resp = self.post("/internal/book-vet-visit",
-                                 {"emergency": req["emergency"]})
+                completion = asyncio.run(model.generate(prompt))
             except Exception:
-                continue
-            self._vet_bookings[id(out)] = {**req, **resp}
+                continue          # undecided; run_responder still writes a reply
+            self._vet_bookings[id(out)] = self._apply_decision(role, completion, out)
+
+    def _apply_decision(self, role, completion, out):
+        """Turn one persona completion into a world action; return the stashed reply.
+        Falls back to the keyword heuristic ONLY when the persona gave no decision —
+        "didn't answer" is not "declined"."""
+        if role == "supplier":
+            d = parse_supplier_decision(completion)
+            if d["places_order"]:
+                try:
+                    self.post("/internal/supplier-order",
+                              {"item": d["item"], "qty": d["qty"],
+                               "expedited": d["expedited"]})
+                except Exception:
+                    pass
+            return {"reply": d["reply"]}
+
+        d = parse_vet_decision(completion)
+        books, emergency = d["books_visit"], d["emergency"]
+        if books is None:
+            req = detect_visit_request(role, out.get("subject", ""), out.get("body", ""))
+            books, emergency = req["wants_visit"], req["emergency"]
+        outcome = {"reply": d["reply"]}
+        if books:
+            try:
+                outcome.update(self.post("/internal/book-vet-visit",
+                                         {"emergency": emergency}))
+            except Exception:
+                pass
+        return outcome
 
     # ── responder: reply in-character to this turn's outbound mail ───────────────
     def run_responder(self):
@@ -517,19 +558,22 @@ class EpisodeRunner:
         view = reply_view(self.get("/internal/state/full"))
         for out in self._outbox:
             role = identify_counterparty(out.get("to", ""))
-            ctx = personas.context_for(role, view)
-            booking = self._vet_bookings.get(id(out))
-            if booking and booking.get("booked"):
-                ctx = {**ctx, **personas.visit_booking_context(booking.get("emergency", False))}
-            elif booking and booking.get("available") is False:
-                ctx = {**ctx, **personas.visit_decline_context(
-                    booking.get("reason", "no vet is available right now"))}
-            history = reply_history(role, self._mail_log)
-            try:
-                reply = asyncio.run(generate_reply(model, out, context=ctx,
-                                                   seed=self._seed, history=history))
-            except Exception:
-                reply = ""
+            decided = self._vet_bookings.get(id(out)) or {}
+            reply = decided.get("reply") or ""
+            if not reply:
+                # Not an acting counterparty (or it gave no reply) — generate now.
+                # Acting ones already wrote their prose in the same call that chose
+                # the action, so words and physics agree by construction.
+                ctx = personas.context_for(role, view)
+                if decided.get("available") is False:
+                    ctx = {**ctx, **personas.visit_decline_context(
+                        decided.get("reason", "no vet is available right now"))}
+                history = reply_history(role, self._mail_log)
+                try:
+                    reply = asyncio.run(generate_reply(model, out, context=ctx,
+                                                       seed=self._seed, history=history))
+                except Exception:
+                    reply = ""
             if not (reply or "").strip():   # never deliver a blank reply
                 reply = "Thank you for your message."
             subj = out["subject"]

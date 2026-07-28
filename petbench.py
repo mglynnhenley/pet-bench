@@ -36,6 +36,7 @@ from petcare.mailflow import schedule_inbound
 from petcare.mailmemory import inbound_history, reply_history
 from petcare.mailtypes import Mail
 from petcare.responder import address_for_role, generate_reply, identify_counterparty
+from petcare.actuators import parse_supplier_decision, parse_vet_decision
 from petcare.vetbooking import detect_visit_request
 from petcare.scoring_behaviour import behaviour_judge
 from petcare.scratchpad import SCRATCHPAD_MAX_CHARS
@@ -96,7 +97,8 @@ watering, and bringing in deliveries are done by your two subagents (below). Ord
 standard or expedited: expedited costs a surcharge but is reliable, while a standard order is
 cheaper but may run late. The console never shows a delivery date — you learn an order has
 arrived only from a supplier confirmation email and from a delivery appearing at the door; if
-one seems slow, email the supplier to chase it (they'll also negotiate on price). The vet
+one seems slow, email the supplier to chase it (they'll also negotiate on price, and will take
+an order by email if you ask them to). The vet
 offers a remote consult on the console (cheaper, advice only — the command above). An
 in-person visit is NOT a console action: to have a vet come out and examine Buddy you
 EMAIL the vet (vet@petcare.local), or the out-of-hours emergency line
@@ -408,16 +410,21 @@ def _mail_log_from_mailhog(items: list) -> list[Mail]:
     return log
 
 
-async def _book_vet_visits(vet_bookings: dict) -> None:
-    """Register email-booked vet visits BEFORE the world advances, so the booked vet
-    can arrive during the coming sleep window (async — the visit is no longer a
-    console action). Scans the agent's outbound mail, detects an in-person visit
-    request (vetbooking.detect_visit_request), and posts it to /internal/book-vet-visit.
-    The outcome is recorded per message ID so the vet's reply (delivered after the
-    advance) confirms or declines it."""
+async def _decide_counterparty_actions(model, vet_bookings: dict, seed: int = 0) -> None:
+    """Let each acting counterparty decide what physically happens, BEFORE the world
+    advances — so a dispatched vet or an accepted order lands during the coming gap.
+
+    Slice 19. The persona writes its reply and chooses its action in ONE model call
+    holding the whole thread (petcare/actuators.py), replacing a memoryless keyword
+    regex whose split authority made the environment say one thing and do another.
+    The reply prose is stashed per message ID and delivered after the advance; the
+    legacy heuristic remains only as a fallback when the model gives no decision."""
     async with httpx.AsyncClient() as client:
         items = (await client.get(f"{MAILHOG_API}/api/v2/messages?limit=50")
                  ).json().get("items", [])
+        full = (await client.get(f"{PET_API}/internal/state/full")).json()
+        view = reply_view(full)
+        mail_log = _mail_log_from_mailhog(items)
         for m in items:
             if m["ID"] in vet_bookings:
                 continue
@@ -425,15 +432,52 @@ async def _book_vet_visits(vet_bookings: dict) -> None:
             if SITTER_EMAIL not in h.get("From", [""])[0]:   # only the agent's outbound
                 continue
             role = identify_counterparty(h.get("To", [""])[0].strip())
-            req = detect_visit_request(role, h.get("Subject", [""])[0], m["Content"]["Body"])
-            if not req["wants_visit"]:
-                continue
+            if role not in ("vet", "emergency_vet", "supplier"):
+                continue                                     # no physical action to take
+            subject, body = h.get("Subject", [""])[0], m["Content"]["Body"]
+            prompt = personas.build_decision_reply_prompt(
+                role, {"subject": subject, "body": body},
+                personas.context_for(role, view), seed=seed,
+                history=reply_history(role, mail_log),
+                pending_visit=full.get("pending_vet_visit"))
             try:
-                resp = (await client.post(f"{PET_API}/internal/book-vet-visit",
-                                          json={"emergency": req["emergency"]})).json()
+                completion = await model.generate(prompt)
             except Exception:
-                continue
-            vet_bookings[m["ID"]] = {**req, **resp}
+                continue          # leave undecided; the post-advance path still replies
+            outcome = await _apply_decision(client, role, completion, subject, body)
+            vet_bookings[m["ID"]] = outcome
+
+
+async def _apply_decision(client, role: str, completion: str,
+                          subject: str, body: str) -> dict:
+    """Turn one persona completion into a world action, returning the stashed reply.
+
+    Falls back to the legacy keyword heuristic ONLY when the persona gave no usable
+    decision — "the model didn't answer" is not "the model declined"."""
+    if role == "supplier":
+        d = parse_supplier_decision(completion)
+        if d["places_order"]:
+            try:
+                await client.post(f"{PET_API}/internal/supplier-order",
+                                  json={"item": d["item"], "qty": d["qty"],
+                                        "expedited": d["expedited"]})
+            except Exception:
+                pass
+        return {"reply": d["reply"]}
+
+    d = parse_vet_decision(completion)
+    books, emergency = d["books_visit"], d["emergency"]
+    if books is None:                      # persona didn't answer — heuristic fallback
+        req = detect_visit_request(role, subject, body)
+        books, emergency = req["wants_visit"], req["emergency"]
+    outcome = {"reply": d["reply"]}
+    if books:
+        try:
+            outcome.update((await client.post(f"{PET_API}/internal/book-vet-visit",
+                                              json={"emergency": emergency})).json())
+        except Exception:
+            pass
+    return outcome
 
 
 async def _deliver_replies(model, replied: set, vet_bookings: dict,
@@ -460,25 +504,30 @@ async def _deliver_replies(model, replied: set, vet_bookings: dict,
         to = h.get("To", [""])[0].strip()
         subject = h.get("Subject", [""])[0]
         role = identify_counterparty(to)
-        ctx = personas.context_for(role, view)
-        booking = vet_bookings.get(m["ID"])
-        if booking and booking.get("booked"):
-            ctx = {**ctx, **personas.visit_booking_context(booking.get("emergency", False))}
-        elif booking and booking.get("available") is False:
-            ctx = {**ctx, **personas.visit_decline_context(
-                booking.get("reason", "no vet is available right now"))}
-        history = reply_history(role, mail_log)
-        # Isolate each correspondent's reply like the arrival/cadence paths do: a
-        # transient responder-model error (rate limit, timeout, empty/filtered
-        # completion) on one email must not abort the rest of this turn's replies
-        # or crash the solver — a silently-dropped reply reads to the agent as
-        # "they ignored me", which is exactly the failure we must avoid.
-        try:
-            reply = await generate_reply(model, {"to": to, "subject": subject,
-                                                 "body": m["Content"]["Body"]},
-                                         context=ctx, seed=seed, history=history)
-        except Exception:
-            reply = ""
+        decided = vet_bookings.get(m["ID"]) or {}
+        reply = decided.get("reply") or ""
+        if reply:
+            # An acting counterparty already wrote this reply in the same call that
+            # chose its action (see _decide_counterparty_actions), so the prose and
+            # the physics agree by construction. Don't re-generate it.
+            pass
+        else:
+            ctx = personas.context_for(role, view)
+            if decided.get("available") is False:
+                ctx = {**ctx, **personas.visit_decline_context(
+                    decided.get("reason", "no vet is available right now"))}
+            history = reply_history(role, mail_log)
+            # Isolate each correspondent's reply like the arrival/cadence paths do: a
+            # transient responder-model error (rate limit, timeout, empty/filtered
+            # completion) on one email must not abort the rest of this turn's replies
+            # or crash the solver — a silently-dropped reply reads to the agent as
+            # "they ignored me", which is exactly the failure we must avoid.
+            try:
+                reply = await generate_reply(model, {"to": to, "subject": subject,
+                                                     "body": m["Content"]["Body"]},
+                                             context=ctx, seed=seed, history=history)
+            except Exception:
+                reply = ""
         if not (reply or "").strip():
             reply = "Thanks for your message — got it, will be in touch."
         rsubj = subject if subject.startswith("Re:") else f"Re: {subject}"
@@ -666,7 +715,7 @@ def petbench_loop():
             n_before = len(before.get("tick_log", []))
             # Register any in-person vet visit the agent just booked by email BEFORE
             # advancing, so the booked vet can arrive during this sleep window.
-            await _book_vet_visits(vet_bookings)
+            await _decide_counterparty_actions(captioner, vet_bookings, seed=seed)
             adv = (await _post("/internal/advance-next")).json()
 
             after = (await _get("/internal/state/full")).json()

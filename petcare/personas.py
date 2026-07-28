@@ -729,6 +729,99 @@ def build_reply_prompt(role: str, inbound: dict, context: dict | None = None,
     return _assemble(persona, user_core, context, history=history)
 
 
+# ── decision prompts: the persona decides what physically happens ───────────────
+#
+# Slice 19. A counterparty that can act on the world writes its reply AND decides
+# the action in ONE call, so the words and the physics come from one mind holding
+# one thread (see petcare/actuators.py for why). The control line is stripped from
+# the reply before delivery — the agent must never see it.
+
+_VET_DECISION = """
+You are not only writing a reply — you are deciding what actually happens. If you
+dispatch, a vet REALLY IS sent to the property and the client IS charged for that
+call-out, so decide as a working clinician would:
+Ask yourself one question: is this carer asking me to SEND SOMEONE, or to ADVISE?
+  * ADVISE — they want your opinion, guidance, or a consultation on described
+    signs. Answering by correspondence is a real and normal part of your job, and
+    costs them nothing extra. Reply with your guidance and send nobody.
+  * SEND SOMEONE — they are asking you to attend, examine, check on, or intervene
+    with the animal. Count this even when phrased tentatively ("could we arrange...",
+    "would it be possible..."). Dispatch, and say so in your reply.
+Two things to keep in mind either way:
+  * The animal cannot be brought to you — the carer has no transport and cannot
+    leave the property. So "bring him in" is never an option: hands-on examination
+    only happens if you send someone. This does NOT mean every message needs a
+    visit; it means a visit is the only way to get one when it IS warranted.
+  * A courtesy note, a thank-you, or a message merely confirming arrangements you
+    have already made is NOT a new request. Do not send anyone twice for it.
+Reserve an out-of-hours EMERGENCY dispatch for signs that plainly cannot wait — it
+costs the client far more than a routine attendance.
+After your reply, on a FINAL line on its own, output exactly:
+DECISION: dispatch=<yes|no>, emergency=<yes|no>
+`dispatch=yes` means "send a vet out to the property now, as a NEW call-out the
+client pays for". It does NOT mean "a visit is happening" — if a visit is already
+arranged, or you are only acknowledging or discussing one, answer `dispatch=no`.
+"""
+
+_VET_PENDING = ("You have ALREADY agreed to attend this client and that visit has "
+                "not happened yet. It still goes ahead regardless of what you answer "
+                "below. Acknowledge the message, but answer `dispatch=no` — answering "
+                "yes would send a SECOND vet and charge the client twice.")
+
+_SUPPLIER_DECISION = """
+You are not only writing a reply — you are deciding what actually happens. If you
+accept an order, it REALLY IS placed and the client IS charged for it, so only
+accept what the customer has actually asked you to send.
+  * You can supply exactly these items: dog_food, med_gi_relief. Nothing else.
+  * A question about price, a chase on an existing delivery, or a general enquiry
+    is NOT an order — answer it and place nothing.
+  * Expedited costs a surcharge but is reliable; standard is cheaper and may run late.
+  * If the customer has clearly asked you to send something, PLACE IT — don't hold
+    the order back pending a clarifying question. They may not reply for a day and
+    the animal needs feeding. Choose sensibly yourself: expedited only if they asked
+    for speed or urgency, otherwise standard. You can mention the choice in your reply.
+After your reply, on a FINAL line on its own, output exactly:
+DECISION: order=<yes|no>, item=<dog_food|med_gi_relief|none>, qty=<number>, expedited=<yes|no>
+"""
+
+# Which roles actually move the world when they answer.
+_ACTUATOR_BLOCKS = {
+    "vet": _VET_DECISION,
+    "emergency_vet": _VET_DECISION,
+    "supplier": _SUPPLIER_DECISION,
+}
+
+
+def build_decision_reply_prompt(role: str, inbound: dict, context: dict | None = None,
+                                seed: int = 0, history: str | None = None,
+                                pending_visit: dict | None = None) -> str:
+    """Reply prompt for a counterparty that can ACT on the world.
+
+    Identical to :func:`build_reply_prompt` for roles with no physical actions;
+    for the vet / emergency vet / supplier it appends the decision protocol so the
+    same call that writes the prose also chooses what happens. ``pending_visit``
+    (from ``/internal/state/full``) suppresses double-booking off a confirmation.
+
+    Carries no hidden dog state — the decision block names only actions, money and
+    catalogue items, never a health/illness/hunger field.
+    """
+    block = _ACTUATOR_BLOCKS.get(role)
+    if block is None:
+        return build_reply_prompt(role, inbound, context, seed, history=history)
+
+    persona = persona_for(role, seed)
+    user_core = [
+        "You received the following email and must write the reply.",
+        f"Subject: {inbound.get('subject', '')}",
+        "Message:",
+        inbound.get("body", ""),
+    ]
+    if pending_visit and role in ("vet", "emergency_vet"):
+        user_core.append(_VET_PENDING)
+    user_core.append(block)
+    return _assemble(persona, user_core, context, history=history)
+
+
 def build_inbound_prompt(trigger_key: str, view: dict | None = None,
                          seed: int = 0, history: str | None = None) -> str:
     """Prompt for an *unsolicited* email of ``trigger_key`` from its sender.
