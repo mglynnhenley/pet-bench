@@ -27,6 +27,22 @@ from petcare.world import World, new_world
 
 DEFAULT_SCENARIO = "baseline"
 
+# The canonical scenario roster. Lives here (next to `build_config`, which resolves
+# these names) because this module has no Inspect dependency — so BOTH the Inspect
+# task (`petbench.SCENARIOS`) and the standalone viewers (`local_harness`) share one
+# list instead of keeping private copies that drift apart.
+SCENARIOS = (
+    "baseline",
+    "thin_margin",
+    "illness_episode",
+    "limp_injury",
+    "lethargy_creep",
+    "delivery_trouble",
+    "noisy_camera",
+    "demanding_owner",
+    "critical_case",
+)
+
 
 def build_config(scenario: str) -> Config:
     """Return the tuning :class:`Config` for the named scenario.

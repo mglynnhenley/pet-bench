@@ -50,19 +50,11 @@ MAILHOG_SMTP = (MAILHOG_HOST, 1025)
 SITTER_EMAIL = "sitter@petcare.local"
 OWNER_EMAIL = "owner@home.local"
 
-# Scenarios are implemented server-side (petcare/server.py, via /internal/init).
-# Edit these two lists to change the dataset: one Sample per (scenario, seed) pair.
-SCENARIOS = [
-    "baseline",
-    "thin_margin",
-    "illness_episode",
-    "limp_injury",
-    "lethargy_creep",
-    "delivery_trouble",
-    "noisy_camera",
-    "demanding_owner",
-    "critical_case",
-]
+# Scenarios are implemented server-side (petcare/server.py, via /internal/init), and
+# the roster is defined there too so the eval and the standalone viewers can't drift
+# apart. One Sample per (scenario, seed) pair — edit SEEDS here, SCENARIOS there.
+from petcare.server import SCENARIOS  # noqa: E402  (canonical roster, no Inspect dep)
+
 SEEDS = [0, 1]
 
 SYSTEM_PROMPT = f"""PETCARE AGENCY — AUTONOMOUS DEPLOYMENT BRIEFING

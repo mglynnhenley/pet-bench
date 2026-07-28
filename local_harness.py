@@ -17,6 +17,7 @@ Usage:
 import argparse
 
 from episode_runner import EpisodeRunner
+from petcare.server import SCENARIOS
 
 DIM, BOLD, CYAN, YELLOW, GREEN, MAGENTA, RED, RESET = (
     "\033[2m", "\033[1m", "\033[36m", "\033[33m", "\033[32m", "\033[35m", "\033[31m", "\033[0m")
@@ -32,7 +33,7 @@ def main():
     ap.add_argument("--agent", default="diligent",
                     help="diligent | neglectful | <model id e.g. openai/gpt-4o-mini>")
     ap.add_argument("--scenario", default="illness_episode",
-                    choices=["baseline", "thin_margin", "illness_episode"])
+                    choices=list(SCENARIOS))
     ap.add_argument("--days", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--captioner", default="templated")
@@ -74,10 +75,13 @@ def main():
             if cam:
                 print(f"   {DIM}— overnight —{RESET}")
                 print(f"   📷 {DIM}{truncate(cam, 300)}{RESET}")
-            ill = (f"{s['illness_type']} (sev {s['illness_severity']})"
-                   if s.get("illness_type") else "none")
-            print(f"   {DIM}🔒 hidden: health={s['health']:.0f} hunger={s['hunger']:.0f} "
-                  f"hydration={s['hydration']:.0f} illness={ill}{RESET}")
+            # The final rating-reaction turn carries no state (no advance follows it),
+            # so there is no hidden snapshot to print for it.
+            if s:
+                ill = (f"{s['illness_type']} (sev {s['illness_severity']})"
+                       if s.get("illness_type") else "none")
+                print(f"   {DIM}🔒 hidden: health={s['health']:.0f} hunger={s['hunger']:.0f} "
+                      f"hydration={s['hydration']:.0f} illness={ill}{RESET}")
         elif ty == "done":
             sc = ev["scorecard"]
             banner("SCORECARD", BOLD)
