@@ -74,14 +74,17 @@ def test_vet_visit_sets_present_hours_and_shows_on_camera():
     assert w.vet_present_hours == 0
 
 
-def test_routine_visit_does_not_stabilise_but_emergency_does():
-    w = new_world(_quiet_config(), seed=2)
-    w.set_condition("critical")
-    crit = w.config.critical_health_threshold
-    assert w.vet_visit(emergency=False) is False
-    assert w.dog.health == crit                       # assessment only
-    assert w.vet_visit(emergency=True) is True
-    assert w.dog.health > crit                         # stabilised
+def test_both_visit_kinds_stabilise_a_critical_dog():
+    # Updated: a routine visit used to be assessment-only, which left an attending
+    # vet watching a dog die and made repeat call-outs an unwinnable money drain
+    # (see tests/test_vet_treats.py). Both kinds treat now; the emergency line's
+    # advantage is arriving sooner, not being the only thing that works.
+    crit = _quiet_config().critical_health_threshold
+    for emergency in (False, True):
+        w = new_world(_quiet_config(), seed=2)
+        w.set_condition("critical")
+        assert w.vet_visit(emergency=emergency) is True
+        assert w.dog.health > crit                     # stabilised either way
 
 
 def test_vet_visit_scene_shows_a_person_and_never_leaks():

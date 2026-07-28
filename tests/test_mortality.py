@@ -157,13 +157,17 @@ def test_emergency_visit_stabilises_a_critical_dog(client, world):
     assert world.dog.health > world.config.critical_health_threshold
 
 
-def test_routine_visit_does_not_treat(client, world):
+def test_routine_visit_also_rescues_a_critical_dog(client, world):
+    # Was "assessment only". A vet that attends a dying animal and does nothing is
+    # not believable, and made repeat call-outs an unwinnable money drain (see
+    # tests/test_vet_treats.py). The emergency line's edge is now SPEED, not being
+    # the only treatment that works.
     world.set_illness("gi_upset", 3)
     world.dog.health = 5.0
     client.post("/internal/book-vet-visit", json={"emergency": False})
     client.post("/care/schedule-next", json={"hours": world.config.vet_visit_eta_hours})
     client.post("/internal/advance-next")
-    assert world.dog.illness_severity == 3   # assessment only, no stabilisation
+    assert world.dog.health > world.config.critical_health_threshold
 
 
 # ── the authored scenario ─────────────────────────────────────────────────────

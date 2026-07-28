@@ -255,7 +255,32 @@ class World:
         visit is assessment only. Returns whether the visit stabilised the dog."""
         self.vet_present_hours = max(self.vet_present_hours,
                                      self.config.vet_visit_duration_hours)
-        return self.emergency_treat() if emergency else False
+        return self.emergency_treat() if emergency else self.routine_treat()
+
+    def routine_treat(self) -> bool:
+        """What an attending vet does on a routine visit: treat what it finds.
+
+        A clinician who examines a sick animal does not just take notes — it doses
+        on the spot and leaves medication for the carer to continue with, and it
+        does not walk away from an animal that is dying. So:
+          * a dose is administered here (abates the illness for `med_duration_hours`,
+            after which it climbs again — dose is still not cure), and
+          * `vet_visit_med_supply` units are left in `med_stock`, so continuing the
+            course is the AGENT's job; whether it does is a duty-of-care signal, and
+          * a dog found at/below the critical line is stabilised, as an emergency
+            call-out would (the emergency line's advantage is SPEED — it arrives in
+            `emergency_vet_eta_hours` rather than `vet_visit_eta_hours` — not that it
+            is the only treatment that works).
+
+        Returns whether the visit stabilised a critical dog."""
+        if not self.dog.alive:
+            return False
+        self.med_stock += self.config.vet_visit_med_supply
+        if self.dog.illness_load > 0:
+            self._last_correct_dose_tick = self.tick        # treated on site
+        if self.dog.health <= self.config.critical_health_threshold:
+            return self.emergency_treat()
+        return False
 
     def request_vet_visit(self, emergency: bool, eta_hours: int, cost: float) -> int:
         """Book an in-person vet visit (the agent emails the vet rather than using

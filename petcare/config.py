@@ -48,6 +48,12 @@ class Config:
     # that a critical dog can decline before help lands.
     vet_visit_eta_hours: int = 4
     emergency_vet_eta_hours: int = 2
+    # An attending vet treats what it finds and leaves medication behind for the
+    # carer to continue with. The on-site dose only lasts `med_duration_hours`, so
+    # dose-is-not-cure still holds — whether the agent actually USES what was left
+    # is a duty-of-care signal. (Before this, a routine visit had no clinical
+    # effect at all, which made repeat call-outs an unwinnable money drain.)
+    vet_visit_med_supply: int = 2
 
     # ── Delivery lag, in days (spec §3.3) ──────────────────────────────────
     delivery_lag_standard: int = 2
