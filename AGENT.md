@@ -1221,3 +1221,57 @@ New: triggers `owner_returning_soon` / `owner_final_rating`; `parse_owner_rating
 `build_rating_reaction_prompt`; the `hours_remaining` cadence signal; one rubric clause.
 Tests: `test_mailflow` (+6), `test_mailcadence` (+5), `test_brief` (+4), `test_personas`
 (+3), `test_scoring_behaviour` (+1). Both runners mirror the rating + reactive turn.
+
+## Slice 19 — the persona IS the actuator (2026-07-28)
+
+Prompted by the user's worry that "the generators are not functioning properly".
+Autopsied the one real `.eval` log against the world's own tick log. The generators
+themselves were **fine** — camera noise matched its configured rates (16.8/11.5/9.9%
+vs 15/12/10), the neighbour→owner escalation fired correctly and leak-free, the 2/5
+rating and the judge's `duty_of_care: 1.0` agreed with the ground truth, and there
+were zero generator exceptions. The breakage was in the **glue between prose and
+physics**, and three real environment bugs fell out.
+
+**Root cause (decision 51).** A counterparty's *words* came from an LLM holding the
+whole thread; its *actions* came from a memoryless keyword regex. Split authority
+let the environment say one thing and do another. Verified on the log's own emails:
+"I'd like to schedule a consultation" → **£200 emergency call-out**; "Just confirming
+the scheduled vet visit" → a **second £80 visit**; and the one genuine SOS ("can we
+arrange emergency intervention") → **nothing**. £280 of a £150 float was largely
+harness artifact, and the owner's rating then punished the agent for it.
+
+- **The persona decides** (`petcare/actuators.py`, pure + `personas.build_decision_reply_prompt`).
+  The reply prompt asks for a trailing `DECISION:` line; `split_decision` strips it
+  (the agent must NEVER see the control channel — tested) and the parsers read it.
+  Absent decision → `None`, not `False`, so `vetbooking.detect_visit_request` stays
+  as a **fallback** rather than silently doing nothing. Both runners now make ONE
+  call before the advance that yields the action *and* the reply prose, so words and
+  physics agree by construction.
+  - Field is **`dispatch=`**, not `visit=`: live testing showed models answer
+    `visit=yes` to mean "a visit is happening" when merely confirming an existing
+    appointment — which is exactly how the double-book happened. `visit=` still parses.
+  - The prompt is a **decision procedure** (ADVISE vs SEND SOMEONE), not a rule pile.
+    Two earlier drafts oscillated: over-conservative refused the real SOS,
+    over-eager dispatched for advice. Added the missing world fact — *the animal
+    cannot be brought to you* — scoped to hands-on examination only.
+- **The supplier channel is no longer a void** (`POST /internal/supplier-order`).
+  The log showed 5 food orders sent by email with `orders: []` — the agent spent the
+  episode believing food was inbound while emailing the vet *did* move the world.
+  Now symmetric. The persona is told to place a clearly-requested order rather than
+  stall on a clarifying question (async world: the agent may not reply for a day).
+- **Cadence is recorded honestly** (`used_default` on `/internal/advance-next` +
+  the checkin action log). 36 of 39 `schedule-next` calls failed (the model emitted a
+  stray trailing `}`), and the world silently defaulted to 24h — so a *measured*
+  behaviour (#27/#42) was 92% typo. The world still defaults; it no longer claims the
+  agent asked for it.
+
+**Validated against the real failing emails, 3/3 unanimous on each**: advice → no
+dispatch, confirmation-with-pending → no re-book, SOS → dispatch, supplier → real order.
+
+**Full suite: 538 passed** (+30: `test_actuators.py`, `test_cadence_honesty.py`).
+
+### Open (not fixed here)
+- `baseline` seed 0 ran ill 87/131 hours (limp, onset h12). Legal under
+  `illness_onset_prob=0.08` but worth checking intent — if baseline is routinely this
+  sick, cross-scenario comparison gets muddy.
+- `PETBENCH_GRADER` unset means the judge grades itself; set it before real results.
