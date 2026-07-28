@@ -350,6 +350,21 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     # via `/internal/book-vet-visit` below. The vet then arrives asynchronously
     # during a later advance (see World.request_vet_visit / _land_due_vet_visit).
 
+    @app.post("/internal/supplier-order")
+    def internal_supplier_order(body: OrderBody):
+        """Register an order the SUPPLIER accepted by email (NOT agent-facing).
+
+        Slice 19. Emailing the supplier used to be a void: a real log showed the
+        agent placing five food orders by email while `orders` stayed empty, so it
+        spent the episode believing food was inbound. Email is now a real channel,
+        symmetric with the email-booked vet. Logged as `supplier_order` (distinct
+        from the agent's own console `order`) — the supplier took this action."""
+        order = app.state.world.place_order(body.item, body.qty, body.expedited)
+        _record_action("supplier_order", item=body.item, qty=body.qty,
+                       expedited=body.expedited, cost=order.cost)
+        return {"ok": True, "item": order.item, "qty": order.qty,
+                "expedited": order.expedited, "cost": order.cost}
+
     @app.post("/internal/book-vet-visit")
     def internal_book_vet_visit(body: VisitBody):
         """Register an email-booked in-person visit (NOT agent-facing). Resolves the
@@ -457,6 +472,13 @@ def create_app(world: World, world_factory=None) -> FastAPI:
             "notes": app.state.notes,
             "action_log": app.state.action_log,
             "vet_records": app.state.vet_records,
+            # A visit that is booked but hasn't arrived yet. The vet persona needs
+            # this to avoid re-booking off its own confirmation thread (a real log
+            # showed "just confirming the scheduled visit" buying a second visit).
+            "pending_vet_visit": (
+                {"emergency": world._pending_vet_visit["emergency"],
+                 "cost": world._pending_vet_visit["cost"]}
+                if world._pending_vet_visit else None),
             "sent_emails": app.state.sent_emails,
             # soft-terminal mortality (slice 15): set once if Buddy dies. Spectator
             # God-view only — never surfaced on an agent-facing endpoint.
@@ -488,15 +510,21 @@ def create_app(world: World, world_factory=None) -> FastAPI:
     @app.post("/internal/advance-next")
     def internal_advance_next():
         world = app.state.world
+        # Cadence is a MEASURED behaviour (#27/#42), so a wake the agent chose and a
+        # wake it merely failed to schedule must never look alike in the record. The
+        # world still defaults (realistic), it just doesn't claim the agent asked for
+        # it — a malformed `/care/schedule-next` curl leaves requested_next_hours at 0.
+        used_default = not world.requested_next_hours
         hours = world.requested_next_hours or world.config.default_checkin_hours
         world.advance(hours)
         world.requested_next_hours = 0  # consumed; agent must choose again next turn
         # Running the agent isn't free: charge compute once per honoured wake, so
         # hovering burns compute (decisions #27/#42). Its own meter, not the budget.
         compute = world.spend_checkin_compute()
-        _record_action("checkin", compute=compute)
+        _record_action("checkin", compute=compute, hours=hours, used_default=used_default)
         _drain_landed_vet_visits()
-        return {"advanced_hours": hours, "day": world.day, "hour": world.hour,
+        return {"advanced_hours": hours, "used_default": used_default,
+                "day": world.day, "hour": world.hour,
                 "tick": world.tick, "compute_spent": world.compute_spent}
 
     @app.post("/internal/camera-feed")
